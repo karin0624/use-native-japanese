@@ -1,0 +1,11 @@
+{
+  "name": "textlint-rule-native-japanese",
+  "version": "0.1.0",
+  "private": true,
+  "description": "外部の日本語検査器を位置付き指摘としてtextlintへ接続する",
+  "type": "module",
+  "exports": "./src/index.js",
+  "engines": {"node": ">=20.18.0"},
+  "dependencies": {"textlint-util-to-string": "3.3.4"},
+  "peerDependencies": {"textlint": ">=15.0.0"}
+}
