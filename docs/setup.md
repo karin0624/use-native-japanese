@@ -1,0 +1,59 @@
+# データ準備と開発環境
+
+現在は検出方式を比較する準備段階です。日本語解析、検出器、訂正器、利用者向けCLIは未実装です。`scripts/` は取得・形式変換・固定分割だけを行います。Python 3.12で検証しています。参照コーパス取得はPOSIXの`resource`を使用します。
+
+リポジトリ直下で実行します。既存環境と分けるため、以下は`.venv-check`を使います。
+
+```sh
+UV_PROJECT_ENVIRONMENT=.venv-check uv sync --locked --extra data
+.venv-check/bin/python -m pytest -q
+.venv-check/bin/ruff check scripts tests
+.venv-check/bin/ruff format --check scripts tests
+```
+
+通常の依存は空です。開発グループはpytestとRuff、任意の`data` extraはNumPy、SciPy、scikit-learn、PyArrowだけです。モデルや日本語解析器は含めません。データ準備の版本は、レビュー済み成果を再現する既存実行に合わせて固定し、間接依存は`uv.lock`で固定します。取得コーパス、原本、生成物、重みは`data/`や`artifacts/`等のGit対象外へ保存してください。
+
+## 寺村誤用例集
+
+[公式原本](https://doi.org/10.15084/00003533)のTXTを利用者が取得し、原本のファイルを指定します。SHA256 `b63dc40c63a6559e389f6f1af5e59ed18607a1513e9112dfa60c74cba0c53181`と異なる入力は拒否します。CC BY-SA 4.0の出典・ライセンスと変換内容は出力manifestに記録します。
+
+```sh
+.venv-check/bin/python scripts/convert_teramura.py \
+  --source data/raw/teramura.goyoureishu.txt --output artifacts/teramura-converted
+.venv-check/bin/python scripts/prepare_comparison.py \
+  --source-dir artifacts/teramura-converted \
+  --teacher-dir data/teacher-prepared --output artifacts/comparison
+```
+
+出力先は存在しないディレクトリを指定します。原記号の除去と文字offsetへの変換だけを行い、日本語の正規化・訂正は行いません。不明記法は未解決として保持し、訂正文を推測しません。
+
+比較分割はseed `20261021`、候補group・学習者IDの連結成分で固定します。全既知入力を連結してから未解決等を除き、groupの20%をtest、残りの25%をdevにします。group数の割合であり、文章数が必ず60/20/20になる意味ではありません（[groupサイズの均衡化要望](https://github.com/scikit-learn/scikit-learn/issues/9297)も確認）。同一offsetの原ラベルを統合し、gapは幅0のまま保持します。出力manifestに依存版本・入力hash・出力hashと制約を残します。
+
+補助訂正文の入力は、既に注釈検査・group分割を済ませた次のファイル群です。このコマンドはその事前検査自体を代替しません。
+
+- `teacher-inspected.jsonl`
+- `split-20261021/assignment.jsonl`、`dev.jsonl`、`test.jsonl`
+- `unused-group-audit-20261021/audit-part-1.jsonl`、`audit-part-2.jsonl`
+
+既存dev/testと固定1000監査groupを補助trainから保留し、寺村dev/testと全文一致する訂正文も除外します。文字TF-IDFによる近似監査は記録のみで、近似文の混入がない保証ではありません。補助訂正文は完全な正用goldではなく、寺村の語彙章ラベルも連語専用・AI生成文専用のgoldではありません。
+
+## 2019年の参照passage
+
+```sh
+.venv-check/bin/python scripts/reference_corpus.py acquire --output artifacts/reference-2019
+.venv-check/bin/python scripts/reference_corpus.py verify --output artifacts/reference-2019
+```
+
+既に固定した`scripts/reference-2019-manifest.json`を使います。revision `4b58cd23ae34af0f77c424b98807901cf472c377`、6 shardのサイズ・SHA256、抽出seed、予算、事前閲覧の記録を含む原manifestは、既存成果とのhash照合を維持するため文章も変更していません。任意の既存manifestを再現する場合だけ`acquire --manifest PATH`を指定します。取得時に同じbytesを出力先へコピーするため、検証時には外部manifestを必要としません。
+
+MIRACL日本語コーパスの2019-02-01 Wikipedia由来passageを、記事IDだけのSHA256で100 bucketへ分け、0〜4を抽出します。bucket 0は入れ子の初期集合です。タイトル・本文・評価例は選択に使いません。`docid/title/text`をそのまま保存し、URL、snapshot、revision、ライセンスを付けます。記事URLは出典への参照であり、元記事の個別revisionは提供されていません。
+
+約1.67 GBの固定Parquetを一つずつ取得し、サイズ・hash・行数を検証します。転送上限2 GiB、出力合計512 MiB、監視RSS目標2 GiBです。RSSはbatchごとの監視でありOSの強制上限ではありません。再試行・追記・resumeは行いません。既存出力ディレクトリを拒否し、失敗時は部分出力と`failed_partial`の`result.json`を残します。`result.json`の`complete`と検証成功を確認してから利用してください。
+
+Wikipedia本文のCC BY-SA 3.0と出典を保持します。配布cardのApache 2.0を本文の再ライセンスとは解釈しません。画像・表・markupを取り除いた抽出済み資料で、誤りのない日本語とは限りません。元の抽出プログラムが非公開という[保守者の回答](https://github.com/project-miracl/miracl/issues/17#issuecomment-2014284662)もあります。未観測の表現を誤用とはみなしません。
+
+## 依存の選択根拠
+
+2026-10-21にPyPIの版本情報、公式資料の利用例、各リポジトリの直近のissue/PR対応を確認しました。連結成分は[SciPy](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.connected_components.html)、分割は[GroupShuffleSplit](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GroupShuffleSplit.html)、Parquetの逐次読取は[PyArrow iter_batches](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html)へ委ねています。独自のgroup分割やParquet readerは実装しません。sklearnのgroup分割は各回のtest集合間の排他性を一般には保証しませんが、ここでは一度testを取り除いた残りだけを再分割します。
+
+保守状況の確認例は[SciPyの不具合修正](https://github.com/scipy/scipy/pull/26468)、[scikit-learnのmetadata修正](https://github.com/scikit-learn/scikit-learn/pull/35191)、[Arrowの検証修正](https://github.com/apache/arrow/pull/54911)です。これらは直近の保守活動の証拠であり、このデータ処理の品質保証ではありません。pytestとRuffは[公式のテスト導入例](https://docs.pytest.org/en/stable/getting-started.html)と[lint/format利用例](https://docs.astral.sh/ruff/tutorial/)に従い、空のruntime packageや配布用build設定はまだ設けません。

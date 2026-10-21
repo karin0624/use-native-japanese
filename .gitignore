@@ -19,3 +19,11 @@ build/
 data/*
 models/
 raw/
+.venv-*/
+*.jsonl
+*.parquet
+*.arrow
+*.bin
+*.safetensors
+*.pt
+*.pth

@@ -1,0 +1,96 @@
+{
+  "created_utc": "2026-10-21T17:51:54.372050+00:00",
+  "status": "frozen_before_corpus_read",
+  "dataset": "miracl/miracl-corpus",
+  "config": "ja",
+  "split": "train",
+  "snapshot": "20190201",
+  "revision": "4b58cd23ae34af0f77c424b98807901cf472c377",
+  "source_main_revision": "d921ec7e349ce0d28daf30b2da9da5ee698bef0d",
+  "sources": {
+    "card": "https://huggingface.co/datasets/miracl/miracl-corpus",
+    "dump": "https://archive.org/details/jawiki-20190201",
+    "dump_metadata": "https://archive.org/metadata/jawiki-20190201",
+    "parquet_metadata": "https://huggingface.co/api/datasets/miracl/miracl-corpus/tree/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train?recursive=false&expand=false&limit=1000",
+    "dataset_info": "https://datasets-server.huggingface.co/info?dataset=miracl%2Fmiracl-corpus&config=ja"
+  },
+  "license": {
+    "text": "CC-BY-SA-3.0",
+    "distribution_card": "Apache-2.0",
+    "note": "The distribution card is not treated as relicensing the Wikipedia text. Preserve source attribution and original text license."
+  },
+  "unit": "Original MIRACL passage, not a sentence; no Japanese linguistic analysis or correction.",
+  "sampling": {
+    "seed": "native-japanese-reference-2019-v1",
+    "article_id": "docid split at the single #; X in documented X#Y",
+    "hash": "SHA256(UTF-8(seed + ':' + article_id))",
+    "integer": "digest interpreted as unsigned big-endian integer",
+    "bucket": "integer % 100",
+    "selected": "bucket < 5",
+    "initial_subset": "bucket == 0",
+    "selection_inputs": "Only the fixed seed and source article ID; never title, text, evaluation examples or model output.",
+    "prior_probe": "Before this plan, a transport probe read three passages from the first source article. This seed and criterion were not selected using their content."
+  },
+  "limits": {
+    "corpus_download_bytes": 2147483648,
+    "combined_output_bytes": 536870912,
+    "peak_rss_target_bytes": 2147483648,
+    "download_chunk_bytes": 1048576,
+    "batch_rows": 2048,
+    "timeout_seconds": 60
+  },
+  "expected": {
+    "passages": 6953614,
+    "articles": 1133444,
+    "parquet_bytes": 1672463563
+  },
+  "reader": {
+    "package": "pyarrow",
+    "version": "26.0.0",
+    "pypi": "https://pypi.org/project/pyarrow/26.0.0/",
+    "release_date": "2026-10-09",
+    "remote_code": false
+  },
+  "output_files": {
+    "selected": "selected-buckets-00-04.jsonl",
+    "initial": "initial-bucket-00.jsonl"
+  },
+  "shards": [
+    {
+      "path": "ja/train/0000.parquet",
+      "bytes": 279127818,
+      "sha256": "6daecf7efb9fa4215a90d986b7132ffd506591b7a859ee111d568ef5171ff278",
+      "url": "https://huggingface.co/datasets/miracl/miracl-corpus/resolve/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train/0000.parquet"
+    },
+    {
+      "path": "ja/train/0001.parquet",
+      "bytes": 278946040,
+      "sha256": "f2f10d381479a5c9bc6b60cc2c0c66ac4f54a81e1328ec423a7a9a5ca6f4c68a",
+      "url": "https://huggingface.co/datasets/miracl/miracl-corpus/resolve/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train/0001.parquet"
+    },
+    {
+      "path": "ja/train/0002.parquet",
+      "bytes": 280979773,
+      "sha256": "e432cf827ce0d2112cf836262285b8db36fefb3cfedeaf0238867ef6cb71fd77",
+      "url": "https://huggingface.co/datasets/miracl/miracl-corpus/resolve/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train/0002.parquet"
+    },
+    {
+      "path": "ja/train/0003.parquet",
+      "bytes": 284547334,
+      "sha256": "a594c4e5608b6ab661efc8ee215801440a077a0eddc73c8b45b52281c1fcdf0e",
+      "url": "https://huggingface.co/datasets/miracl/miracl-corpus/resolve/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train/0003.parquet"
+    },
+    {
+      "path": "ja/train/0004.parquet",
+      "bytes": 283848663,
+      "sha256": "69d885ed9a93a888f84aa0abc51f512e23253d3d7261d0080517c1d990385bd6",
+      "url": "https://huggingface.co/datasets/miracl/miracl-corpus/resolve/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train/0004.parquet"
+    },
+    {
+      "path": "ja/train/0005.parquet",
+      "bytes": 265013935,
+      "sha256": "6b61eb09e04580bc3f38f12ceb3650547dfc1b948f212b929363cff74490697c",
+      "url": "https://huggingface.co/datasets/miracl/miracl-corpus/resolve/4b58cd23ae34af0f77c424b98807901cf472c377/ja/train/0005.parquet"
+    }
+  ]
+}
