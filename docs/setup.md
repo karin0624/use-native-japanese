@@ -13,6 +13,30 @@ UV_PROJECT_ENVIRONMENT=.venv-check uv sync --locked --extra data
 
 通常の依存は空です。開発グループはpytestとRuff、任意の`data` extraはNumPy、SciPy、scikit-learn、PyArrowだけです。モデルや日本語解析器は含めません。データ準備の版本は、レビュー済み成果を再現する既存実行に合わせて固定し、間接依存は`uv.lock`で固定します。取得コーパス、原本、生成物、重みは`data/`や`artifacts/`等のGit対象外へ保存してください。
 
+## 教師コーパスの固定実験を再生する
+
+[Zenodoの原配布](https://doi.org/10.5281/zenodo.4276130)から`teacher_data.tsv`だけを取得します。Alex Kimn、Yiqun Hu、Takako AikawaによるCC BY 4.0の資料です。日本語教師が学習者の典型誤りを模して作った文で、実学習者の原文ではありません。配布説明の件数とは区別し、この固定原本は6340対です。原本SHA256は`22d154be9f5eebecf0fe3bbaba31f541037a9b1bfe91a6428e62c5768f37dd4e`です。
+
+```sh
+mkdir -p data/raw
+curl --fail --location \
+  https://zenodo.org/api/records/4276130/files/teacher_data.tsv/content \
+  --output data/raw/teacher_data.tsv
+.venv-check/bin/python scripts/prepare_teacher.py \
+  --source data/raw/teacher_data.tsv --output data/teacher-prepared
+.venv-check/bin/python scripts/evaluate_detection.py prepare-corrected \
+  --teacher-dev data/teacher-prepared/split-20261021/dev.jsonl \
+  --output data/teacher-prepared/teacher-corrected-dev.jsonl
+```
+
+`prepare_teacher.py`は2026-10-21の固定実験を再生する入口です。別の原本を分割する道具ではありません。原文の`<>`と訂正文の`()`が一組で、前後の文字列が一致する等の既存検査を保ち、通過した6297対を使います。日本語の解析・修復は行いません。
+
+元実験はPython 3.12.14、NumPy 2.3.5、SciPy 1.17.0、scikit-learn 1.8.0を使用しました。誤文・訂正文を区別せず全文完全一致を連結し、文字TF-IDF 2〜4gram・cosine 0.85以上の近傍を追加して、SciPyの無向連結成分3532groupを作成しました。`GroupShuffleSplit(test_size=0.5, random_state=20261021)`でpoolを分け、同seedのNumPy乱数器でdev/testを各300対選びました。その541group全体を保留し、残る昇順group IDsを`random.Random(20261021)`でshuffleした先頭1000groupから、続く同じ乱数器で各一対を選んだものが固定監査対象です。
+
+今回の再生では近傍探索や乱数選択をやり直さず、本文を含まない`scripts/teacher-selection-20261021.json`のgroup所属・選択原行番号を使います。原手法、原処理3本のSHA256、版本、seed、出典、ライセンス、期待出力hashもそのmetadataに保持しています。原本hash・検査結果hash・7出力のhashが全て一致した場合だけ新規ディレクトリへ書き、再生manifestへ記録します。LLM監査ラベルは含めず、固定1000groupの保留を再現します。
+
+校正用devは元dev300対の訂正文を全文一致でまとめた288文です。元の誤りspanは流用しません。`prepare-corrected`は[共通評価器](evaluation.md)の既存機能です。後述の比較分割へこの`data/teacher-prepared`を渡すと、補助train訂正文まで原本から再現できます。
+
 ## 寺村誤用例集
 
 [公式原本](https://doi.org/10.15084/00003533)のTXTを利用者が取得し、原本のファイルを指定します。SHA256 `b63dc40c63a6559e389f6f1af5e59ed18607a1513e9112dfa60c74cba0c53181`と異なる入力は拒否します。CC BY-SA 4.0の出典・ライセンスと変換内容は出力manifestに記録します。
@@ -29,7 +53,7 @@ UV_PROJECT_ENVIRONMENT=.venv-check uv sync --locked --extra data
 
 比較分割はseed `20261021`、候補group・学習者IDの連結成分で固定します。全既知入力を連結してから未解決等を除き、groupの20%をtest、残りの25%をdevにします。group数の割合であり、文章数が必ず60/20/20になる意味ではありません（[groupサイズの均衡化要望](https://github.com/scikit-learn/scikit-learn/issues/9297)も確認）。同一offsetの原ラベルを統合し、gapは幅0のまま保持します。出力manifestに依存版本・入力hash・出力hashと制約を残します。
 
-補助訂正文の入力は、既に注釈検査・group分割を済ませた次のファイル群です。このコマンドはその事前検査自体を代替しません。
+補助訂正文の入力は、上の教師コーパス再生で作る次のファイル群です。
 
 - `teacher-inspected.jsonl`
 - `split-20261021/assignment.jsonl`、`dev.jsonl`、`test.jsonl`
