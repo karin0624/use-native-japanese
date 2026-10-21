@@ -36,6 +36,16 @@ Juman++ 2.0.0-rc4（辞書20210915-2a1662a）、KNP 5.0 revision `bc4cef1`、rho
 
 再現資料はscratchの`knp-validation/output/{timing.json,host.json,dpnd-examples-api.json,case-examples-api.json}`に保持する。新規の製品依存やコーパス索引は追加していない。
 
+## KWJAの公開値と比較単位
+
+原述語の内容を保持できるかという問いに限り、KWJA main `821df300630b4d05c38406945536eaac848619da`、rhoknp main `665dcfb97c0d4c9b617af9f110e67799ac7f8c59`とrhoknp 1.8.2の公式ソース・test・利用例を追加確認した。新しいモデル取得や推論はしていない。
+
+[Predicate](https://github.com/ku-nlp/rhoknp/blob/665dcfb97c0d4c9b617af9f110e67799ac7f8c59/src/rhoknp/cohesion/predicate.py)の`base_phrase`は述語の核となる基本句、`text`はその表層文字列を返す。`BasePhrase.canonical_form`という公開値は確認できず、実在する`Morpheme.canon`は形態素単位である。KWJAの標準writerにKNPの用言代表表記相当を合成する経路も確認できなかった。正規化された複合述語IDを取得できる前提で接続しない。
+
+一方、公開APIで原文・全形態素列・基本句ID・関係の両端を保持できる。既存の基本句に「高くする」の全内容が入れば、その内容をそのまま保存できる。別基本句の場合は核の参照だけで全内容にならない。該当する公式fixtureはなく、実出力は未確認。完全な正規化IDの不在を不可能性の証明にせず、**必要な情報が既存単位に残るか、比較時に利用できるか**を次の確認事項にする。独自の形容詞・するの結合規則は足さない。
+
+[Pas](https://github.com/ku-nlp/rhoknp/blob/665dcfb97c0d4c9b617af9f110e67799ac7f8c59/src/rhoknp/cohesion/pas.py)の`get_all_arguments()`は既定で共参照先も返す。元の解析が結んだ項を読む用途では`relax=False`とし、本文内の項と外界照応を区別する。`Argument.case`は表層助詞そのものではなく、主辞表示文字列だけを原対象の全体とも見なさない。
+
 ## issueから分かったこと
 
 - [GiNZA #167](https://github.com/megagonlabs/ginza/issues/167#issuecomment-906048577): 受動態の解析報告には、UD r2.8とGiNZA v5で改善したという開発者回答がある。古い報告を現行版の未解決問題として扱わない。
