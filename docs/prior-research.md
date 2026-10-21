@@ -27,10 +27,22 @@ Chantokunの[PM評価](https://www.ipa.go.jp/archive/files/000011075.pdf)や[201
 | --- | --- | --- |
 | [Linggle 2013](https://aclanthology.org/P13-4024/)・[Netspeak](https://github.com/netspeak/netspeak4-application-ngrams) | 指定phraseの用例・頻度を検索する | 任意の全文から疑わしい箇所を選んで判定する機能とは別。NetspeakはMITだが、default branchの最新変更は2022年、2024年PR #18とissue #19は未解決で、現役の誤用検出ライブラリとは呼ばない |
 | [Erkほか2010](https://aclanthology.org/J10-4007/) | 用例と類似度による選択選好の一般化 | 構成部品として比較する。実誤用の全文検出評価ではなく、単独で不可能とも断定しない |
-| [Pereiraほか2013](https://aclanthology.org/P13-3008/) | 日本語連語の訂正候補推薦 | 誤り位置が既知で、正用の共起スコアが誤用を上回る例に評価を絞っている |
+| [Pereiraほか2013](https://aclanthology.org/P13-3008/) | 日本語連語の訂正候補推薦。§3には全文からの抽出と原句・代替句の得点比較による警告案もある | 評価は誤り位置が既知で、正用の共起スコアが誤用を上回る例に絞っている。全文検出の精度実証とは区別する |
 | [深美ほか2026](https://www.jstage.jst.go.jp/article/pjsai/JSAI2026/0/JSAI2026_5E1GS6d03/_pdf/-char/ja) | BERTと人の自然さ評定にr=.412 | 類義動詞5対から作った415フレーズの評定であり、自由文の局所検出ではない |
 
 用例には外部原文を監査できる利点があるが、それは検出精度の証明ではない。[Li・Gaillat 2020](https://aclanthology.org/2020.mwe-1.13/)の用例照合による連語誤用検出は最大F0.5約.05であり、用例を使うこと自体を十分な性能の根拠にできない。[MultiGED](https://aclanthology.org/2023.nlp4call-1.1/)はtoken単位検出の参考になるが日本語を含まず、コーパス移行による性能低下も報告する。
+
+### 拡張案へ戻って確認した研究
+
+| 研究 | 設計へ反映することと限界 |
+| --- | --- |
+| [Herbelot・Kochmar 2016](https://aclanthology.org/C16-1093/) | より高頻度の代替があっても原句が正しい場合と、候補がない誤用を指摘する。原語を含む／除く文脈の分布的な整合を特徴にする先例。英語の既抽出形容詞–名詞824文脈の分類で、全文位置検出ではない |
+| [Chersoniほか2018](https://aclanthology.org/W18-4603/) | 典型的な項のベクトル平均との類似度で、稀な正用と意味的違反を比較する。未観測正用を救う仮説の根拠になるが、英語の人工例の順位評価であり、日本語全文の検出精度ではない。文脈を増やした方式が劣るデータもある |
+| [Vasselli・Watanabe 2023](https://aclanthology.org/2023.bea-1.19/) | 検索併用のF0.5改善が、誤警告減少と再現率低下による場合を示す。同じ警告負担で拾える誤りが増えるかを比較する。英語生成モデルのdecoder検索であり、軽量な独立検出器ではない |
+
+2016年・2018年の専用公開実装は確認できなかった。2023年の参照元[EB-GEC](https://github.com/kanekomasahiro/eb-gec)はMITだがPython 3.7、Torch 1.8、spaCy 2.2等の環境を想定するため、そのまま採用せず研究上の失敗条件を利用する。既存の配列計算や分類器で公表手法を接続・拡張する開発は可能である。
+
+用例ごとのcosineを0で切ってから加重平均する式と、平均ベクトルへのcosineは別のモデルである。前者を一回の内積へ等価変換できるとは扱わない。速度のためにprototypeや上位用例への打切りを採る場合は、近似またはモデル変更として判定差を測る。
 
 ## 公開モデルで完了した限定評価
 
@@ -80,6 +92,7 @@ CPU2threads、mask batch16、Optimum ONNX／ONNX Runtime 1.31.0、CPUExecutionPr
 
 | 評価資源 | 使える情報 | 利用条件・適合の限界 |
 | --- | --- | --- |
+| [寺村誤用例集](https://www2.ninjal.ac.jp/teramuradb/about.html)・[TXTのライセンス](https://repository.ninjal.ac.jp/records/3550/file_details/teramura.goyoureishu.txt?filename=teramura.goyoureishu.txt&file_order=1) | 人手の誤用箇所、誤用分類、学習者・作文内文番号。7,415掲載行、語彙論2,377掲載／同一全文除外後1,655文 | 配布TXTはCC BY-SA 4.0で申請不要。同文の再掲載があり掲載数は独立文数ではない。欠落・文全体の注釈や不整形行を区別する。完全な訂正文はなく、学習者文からAI技術文への性能移行は未確認 |
 | [JGECM](https://github.com/hideyoshikato/JGECM)・[2021年論文](https://www.anlp.jp/proceedings/annual_meeting/2021/pdf_dir/E1-4.pdf) | BCCWJ新聞500文をもとに10名が8種類の擬似誤りを作成。語彙選択カテゴリ、位置情報、原文IDがある | 注釈・構築scriptはCC BY 4.0。本文は含まず、BCCWJ-DVD v1.1と利用契約により復元し、生成データはBCCWJ規約に従う。指示例に「権利を尊重→尊敬」「常に→まいにち」があり連語限定ではない |
 | [TEC-JL](https://github.com/koyama-aomi/TEC-JL)・[論文](https://www.jstage.jst.go.jp/article/jnlp/30/2/30_330/_pdf) | 実学習者文1,702文、複数訂正、語彙選択を含む誤用タグ。動詞・形容詞選択には連語誤りも含む | 申請制。論文のライセンスをデータの商用許諾とみなさない |
 | [Lang-8](https://sites.google.com/site/naistlang8corpora/) | 日本語GEDの先例で使われる学習者文 | 配布元は研究・教育利用と商用利用を区別する |
@@ -87,3 +100,9 @@ CPU2threads、mask batch16、Optimum ONNX／ONNX Runtime 1.31.0、CPUExecutionPr
 JGECMの`leftpos`は左からの開始位置、`rightpos`は右からの終了位置を表すため、通常の開始・終了offsetと同じと仮定しない。[2023年の後続研究](https://www.jstage.jst.go.jp/article/tjsai/38/4/38_38-4_A-L41/_pdf)の表10では、語彙選択の訂正F0.5はA3RT／Bi-LSTMで7.53%、提案モデルで2.65%だった。全体の訂正改善を語彙選択の改善や検出精度に読み替えない。既存の対象カテゴリ資源は存在するが、今回必要な語彙誤り・位置評価・利用条件へ適合する範囲の確認が残る。
 
 Wikipedia実訂正由来のJWTDは主に入力誤り、JCoLAは主に統語的な容認性を扱うため、全体成績だけを連語誤用検出の根拠にしない。新規の完全goldの手作業構築を必須条件にせず、まず既存カテゴリと注釈の再利用可能範囲を確認する。コード、重み、辞書、学習・評価データの許諾はそれぞれ分けて確認する。
+
+### 固定した古い参照本文の経路
+
+[MIRACL corpus](https://huggingface.co/datasets/miracl/miracl-corpus)の日本語は2019-02-01のWikipedia由来で、1,133,444記事・6,953,614passage。Parquet変換revision `4b58cd23ae34af0f77c424b98807901cf472c377`の6shardは計1,672,463,563bytesで、汎用readerから遠隔のデータセットコードを実行せず読める。本文の条件は元のCC BY-SA 3.0を保持し、カードのApache 2.0を本文の再許諾とは解釈しない。
+
+少量の実読でも本文抽出による語の欠落があった。[作者の説明](https://github.com/project-miracl/miracl/issues/17#issuecomment-2014284662)でも厳密な再構築scriptは公開されていない。用例参照には使えるが、全て正しい文という教師にはできない。旧`legacy-datasets/wikipedia`の`20220301.ja`には配布済み日本語Parquetを確認できず、[datasets 4系以降のscript非対応](https://github.com/huggingface/datasets/issues/7693#issuecomment-3118509647)もあるため、古い呼出例をそのまま再利用しない。
