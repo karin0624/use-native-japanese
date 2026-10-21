@@ -51,6 +51,8 @@ desuwaの公開issue、依存更新を除いたPR、外部利用例も検索し�
 
 コード、解析モデル、辞書、参照コーパスを区別する。別配布のGSK京都大学格フレームの条件を、KNPに同梱される辞書の条件だと推定しない。KWJAのコードはMITだが、元となるDeBERTaモデルの公式カードはCC BY-SA 4.0であり、配布チェックポイントまでMITだとは説明しない。
 
-辞書の商用利用条件は未確認であり、利用禁止と断定しない。
+2026-10-21に配布物の取得manifest、残存ソースのCOPYING／README、公式の配布案内・FAQ・installation、公開issueを再点検した。KNP本体は京都大学の3条項BSD、Juman++本体はApache 2.0。KNPの別配布辞書・NEモデルと、実測したJuman++モデルへこれらの条件が適用されるかは未確認であり、商用利用禁止とは断定しない。KNP辞書ZIPの既存central-directory一覧27項目にはLICENSE／READMEがなく、実測コンテナも現環境には残っていないため、内部noticeは再確認できなかった。別売GSK格フレームの条件は転用していない。
+
+KNPの最新の実質変更として確認したものは2023年11月の辞書index修正。公式辞書ZIPの取得経路はHTTP HEAD 200を返した。Juman++には2026年10月の実質修正がある。配布経路が存在することと、全同梱物の利用条件を確認できたことは別である。根拠は[KNPソース](https://github.com/ku-nlp/knp)、[公式配布案内](https://nlp.ist.i.kyoto-u.ac.jp/index.php?KNP)、[Juman++ソース](https://github.com/ku-nlp/jumanpp)と、scratchの取得済み配布物・調査メモに保存する。
 
 独自規則を含む旧抽出器はscratchへ隔離済みで、製品の解析基盤として扱わない。KNPの接続確認は全文の誤用検出性能を示すものではなく、解析器の交換だけで検出器が完成したとはしない。
