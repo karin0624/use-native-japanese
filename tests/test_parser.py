@@ -1,5 +1,7 @@
 """公開出力の小さい人工fixtureで、接続・位置・不能を確かめる。"""
 
+from functools import partial
+
 import pytest
 from rhoknp import Document, Sentence
 
@@ -14,7 +16,9 @@ from native_japanese.parser import (
 )
 
 
-def native_sentence(sid="native-0", warning="", noun_feature=True, malformed=False):
+def native_sentence(
+    sid="native-0", warning="", noun_feature=True, malformed=False, symbols="", surface="重複"
+):
     """語の正誤や言語性能を検証するためのfixtureではない。"""
     noun = "<主辞代表表記:重複/ちょうふく>" if noun_feature else ""
     case = "不正な格解析" if malformed else f"畳む/たたむ:動1:ヲ/C/重複/0/0/{sid}"
@@ -22,7 +26,8 @@ def native_sentence(sid="native-0", warning="", noun_feature=True, malformed=Fal
         f"# S-ID:{sid}{' ' + warning if warning else ''}\n"
         "* 1D\n"
         f"+ 1D {noun}\n"
-        '重複 ちょうふく 重複 名詞 6 サ変名詞 2 * 0 * 0 "代表表記:重複/ちょうふく"\n'
+        f'{surface} ちょうふく 重複 名詞 6 サ変名詞 2 * 0 * 0 "代表表記:重複/ちょうふく"\n'
+        f"{symbols}"
         'を を を 助詞 9 格助詞 1 * 0 * 0 "代表表記:を/を"\n'
         "* -1D\n"
         "+ -1D <用言:動><用言代表表記:畳む/たたむ><正規化代表表記:畳む/たたむ>"
@@ -33,7 +38,9 @@ def native_sentence(sid="native-0", warning="", noun_feature=True, malformed=Fal
     )
 
 
-def install_processors(monkeypatch, *, warnings=(), failure=None):
+def install_processors(
+    monkeypatch, *, warnings=(), failure=None, morphology=native_sentence, parsed=native_sentence
+):
     instances = {"jumanpp": [], "knp": []}
 
     class Morphology:
@@ -46,7 +53,7 @@ def install_processors(monkeypatch, *, warnings=(), failure=None):
 
         def apply_to_sentence(self, sentence, timeout):
             self.calls += 1
-            return Sentence.from_jumanpp(native_sentence(sentence.sid).to_jumanpp())
+            return Sentence.from_jumanpp(morphology(sentence.sid).to_jumanpp())
 
     class CaseParser:
         def __init__(self, **kwargs):
@@ -61,7 +68,7 @@ def install_processors(monkeypatch, *, warnings=(), failure=None):
             if failure is not None:
                 raise failure
             warning = warnings[self.calls - 1] if self.calls <= len(warnings) else ""
-            return native_sentence(sentence.sid, warning=warning)
+            return parsed(sentence.sid, warning=warning)
 
     monkeypatch.setattr("native_japanese.parser.Jumanpp", Morphology)
     monkeypatch.setattr("native_japanese.parser.KNP", CaseParser)
@@ -151,6 +158,51 @@ def test_fallback_keeps_other_sentences_and_reuses_processors(monkeypatch):
     parser.close()
     parser.close()
     with pytest.raises(RuntimeError, match="終了"):
+        parser.analyze("重複を畳む。")
+
+
+def test_native_morpheme_merge_preserves_surface_and_original_endpoints(monkeypatch):
+    symbols = '" " " 特殊 1 記号 5 * 0 * 0 NIL\n） ） ） 特殊 1 括弧終 4 * 0 * 0 NIL\n'
+    merged = (
+        '"） "） "） 特殊 1 記号 5 * 0 * 0 NIL '
+        '<形態素連結-顔文字><顔文字:自動認識>\n'
+    )
+    morphology = partial(native_sentence, symbols=symbols)
+    parsed = partial(native_sentence, symbols=merged)
+    assert morphology().text == parsed().text == '重複"）を畳む。'
+    assert len(morphology().morphemes) == len(parsed().morphemes) + 1
+    install_processors(monkeypatch, morphology=morphology, parsed=parsed)
+    parser = Parser({"prefix": "/人工runtime", "options": ["-case", "-tab"]})
+    text = '  重複"）を 畳む。\n'
+    result = parser.analyze(text)
+    assert not result.unavailable
+    assert len(result.relations) == 1
+    relation = result.relations[0]
+    assert relation.queries == (Query("畳む/たたむ", "動", "ヲ", "重複/ちょうふく"),)
+    assert relation.argument.text == '重複"）を'
+    assert relation.argument.ranges == ((2, 7),)
+    assert relation.predicate.text == "畳む。"
+    assert relation.predicate.ranges == ((8, 11),)
+    for endpoint in (relation.argument, relation.predicate):
+        assert "".join(text[start:end] for start, end in endpoint.ranges) == endpoint.text
+
+
+@pytest.mark.parametrize(
+    ("sid", "surface"),
+    [
+        ("native-1", "重複"),
+        ("native-0", "複"),
+        ("native-0", "複重"),
+        ("native-0", "重複\u3000"),
+    ],
+)
+def test_native_sentence_id_and_surface_changes_are_errors(monkeypatch, sid, surface):
+    def parsed(_sid, warning):
+        return native_sentence(sid, warning=warning, surface=surface)
+
+    install_processors(monkeypatch, parsed=parsed)
+    parser = Parser({"prefix": "/人工runtime", "options": ["-case", "-tab"]})
+    with pytest.raises(ValueError, match="文ID・本文表層"):
         parser.analyze("重複を畳む。")
 
 

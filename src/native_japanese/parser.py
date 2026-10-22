@@ -220,10 +220,9 @@ class Parser:
             local_map = position_map(morph.text, sentence.text)
             mapping = tuple(source_map[offset + position] for position in local_map)
             native = self.knp.apply_to_sentence(morph, timeout=remaining())
-            if native.sid != morph.sid or [(m.text, m.span) for m in native.morphemes] != [
-                (m.text, m.span) for m in morph.morphemes
-            ]:
-                raise ValueError("nativeと入力の文ID・形態素表層・順序・位置が一致しません。")
+            # KNPの既存処理による形態素連結は許容し、本文全体の一致を保つ。
+            if native.sid != morph.sid or native.text != morph.text:
+                raise ValueError("nativeと入力の文ID・本文表層が一致しません。")
             rows, missing = adapt_sentence(native, text, mapping)
             relations.extend(rows)
             unavailable.extend(missing)
