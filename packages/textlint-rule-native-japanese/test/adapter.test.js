@@ -95,7 +95,7 @@ for (const trigger of ["終了", "不正JSON", "件数不正"]) {
     });
 }
 
-test("idleで終了し、応答期限で保留要求を拒否する", async t => {
+test("idleで終了し、応答期限で保留要求を拒否する", { timeout: 5_000 }, async t => {
     const { config } = await setup(t);
     const worker = new Worker(config, { idleMs: 20, timeoutMs: 10_000 });
     t.after(() => worker.close());

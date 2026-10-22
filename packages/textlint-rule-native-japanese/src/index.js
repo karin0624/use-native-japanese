@@ -68,7 +68,9 @@ export default function rule(context, options = {}) {
                     const start = segment.source.originalIndexFromIndex(range[0]);
                     const end = segment.source.originalIndexFromIndex(range[1], true);
                     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end ||
-                        start < 0 || end > segment.node.raw.length) continue;
+                        start < 0 || end > segment.node.raw.length) {
+                        throw new Error("native-japanese: 指摘の原文範囲への写像が不正です。");
+                    }
                     if (typeof diagnostic.message !== "string" || !diagnostic.message.trim()) {
                         throw new Error("native-japanese: 指摘のmessageが不正です。");
                     }
