@@ -1,6 +1,6 @@
 # textlint接続
 
-この接続は外部の日本語検査器をtextlintへつなぐ薄いルールであり、日本語の誤りを判定する機能自体は持たない。Python側の検査runtimeは未実装で、現時点では人工workerによる通信・位置・プロセス管理の検証までを行っている。検出精度や実用時の応答速度は未評価。
+このルールは[Python検査器](runtime.md)の常駐JSONL出力をtextlintの位置付き指摘へ接続します。先に[セットアップ](setup.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませてください。実際の検査経路の統合検証を進めており、人工workerの通信試験だけを検出精度や応答速度の証拠にはしません。
 
 ## 導入と設定
 
@@ -11,18 +11,28 @@ npm ci
 npm test
 ```
 
-パッケージは非公開のworkspaceとして配置している。利用側のtextlint設定に、JSONLプロトコルを実装した常駐commandを指定する。実行ファイルと引数を別々の要素にし、shell用の引用符は含めない。相対パスはtextlintの実行ディレクトリを基準とする。
+パッケージは非公開のworkspaceとして配置しています。リポジトリのルートに`.textlintrc.json`を作り、仮想環境内の実行ファイルと各引数を別々の要素で指定します。shell用の引用符は含めません。以下の絶対パスはローカルの準備先へ置き換えてください。相対パスはtextlintの実行ディレクトリを基準とします。
 
 ```json
 {
   "rules": {
     "native-japanese": {
-      "command": ["/絶対パス/検査器", "--設定", "/絶対パス/設定ファイル"],
+      "command": [
+        "/path/to/use-native-japanese/.venv/bin/native-japanese", "serve",
+        "--config", "/path/to/native-runtime/etc/native-runtime.json",
+        "--cache", "/path/to/local/derived.sqlite3"
+      ],
       "requestTimeoutMs": 120000
     }
   }
 }
 ```
+
+```sh
+npx textlint --config .textlintrc.json input.md
+```
+
+追加用例を使う場合は`command`配列の末尾へ`"--examples", "/path/to/local/examples.sqlite3"`を加えます。取込方法は[出典付き用例の追加](runtime.md#出典付き用例を追加する)を参照してください。
 
 `command`は必須。`requestTimeoutMs`は省略時120秒で、1〜2147483647ミリ秒の整数を指定できる。モデルや手法の指定は外部command側で行う。`shell: false`で起動し、同一設定の文書ではプロセスを共有する。要求がなくなって30秒経つと終了する。常駐中の保持モデルを使うための仕組みであり、120秒はリアルタイム性を保証する値ではない。
 
@@ -34,13 +44,21 @@ npm test
 {"id":"1","texts":["🍣 雲を食べる。","次の段落。"]}
 ```
 
-応答の`id`は入力と同じ文字列。`results`は入力と同じ件数・順序で返す。要求同士の応答順は自由。
+textlintが送る`id`は文字列で、応答は入力と同じ値を返す。`results`は入力と同じ件数・順序で返す。要求同士の応答順は自由。
 
 ```json
 {"id":"1","results":[{"offsetEncoding":"utf-16","diagnostics":[{"range":[3,8],"message":"語の組み合わせを確認してください。","suggestions":["ご飯を食べる"]}]},{"offsetEncoding":"utf-16","diagnostics":[]}]}
 ```
 
-`range`は対応する`texts`要素内の0始まり・終端を含まないUTF-16コード単位の範囲。上例の絵文字は2単位を占める。Pythonの文字列添字はそのまま送らず、`len(text[:index].encode("utf-16-le")) // 2`等で変換する。範囲は空でなく、本文内に収まり、サロゲートペアの途中で切らない。`message`は空でない文字列。`suggestions`は省略可能な、空でない文字列の配列とする。候補の対象はその指摘範囲で、textlintのメッセージへ表示する。候補がなくても指摘できる。
+`range`は対応する`texts`要素内の0始まり・終端を含まないUTF-16コード単位の範囲。上例の絵文字は2単位を占める。Pythonの文字列添字はそのまま送らず、`len(text[:index].encode("utf-16-le")) // 2`等で変換する。範囲は空でなく、本文内に収まり、サロゲートペアの途中で切らない。`message`は空でない文字列。`suggestions`は省略可能な、空でない文字列の配列とする。候補の対象はその指摘範囲で、textlintのメッセージへ表示する。候補がなくても指摘できる。本体は現在`suggestions`による訂正案を生成しない。
+
+上の応答例では省略していますが、各結果に任意の`unavailable`配列を付けられます。各項目の`kind`は`analysis`または`reference`、`reason`は空でない文字列、`ranges`は空でない範囲配列です。各範囲には指摘と同じUTF-16の条件を適用します。例えば、同じ要求への比較不能だけの応答は次の形式です。
+
+```json
+{"id":"1","results":[{"offsetEncoding":"utf-16","diagnostics":[],"unavailable":[{"kind":"reference","reason":"比較可能な用例群がありません。","ranges":[[3,4],[5,8]]}]},{"offsetEncoding":"utf-16","diagnostics":[]}]}
+```
+
+textlintは各端点に、`analysis`なら「判定保留（解析情報）: 理由」、`reference`なら「判定保留（比較不能）: 理由」を表示します。解析情報の不足は文単位のfallbackだけでなく、公開関係が得られない場合や名詞・述語候補に項がない場合も含みます。これらを誤用の`diagnostics`と区別し、参照不足を誤用や段落全体の処理失敗にしません。本体が返す`relations`の内部構造は読まず、保留表示には`unavailable`だけを使います。従来のworkerが配列を省略する場合も互換です。存在する場合は配列・項目・範囲の形式を検証し、不正なら処理エラーにします。
 
 要求単位の処理失敗は次の形式で返す。この場合、同じworkerを次の要求で利用できる。
 
@@ -67,7 +85,7 @@ hard breakの`Break`葉は原文の`raw`を保持するため、改行直前のM
 - [textlint 15.8.0](https://github.com/textlint/textlint/releases/tag/v15.8.0)と、公式ルールでも使われる[textlint-util-to-string 3.3.4](https://github.com/textlint/textlint-util-to-string)を使い、抽出・位置変換を既存APIへ委ねる。StringSourceは最終リリースが2023-11-25で、[readonly対応PR #25](https://github.com/textlint/textlint-util-to-string/pull/25)は未merge。保守が活発とはみなさない。
 - `new StringSource(段落)`だけでは`&amp; 雲を食べる。`の「雲」を原文offset 6ではなく2へ戻す。ASTの葉の範囲、rawとvalue、原文部分文字列の一致を確かめてからStringSourceへ渡す。
 - 代替候補の[mdast-util-to-nlcst](https://github.com/syntax-tree/mdast-util-to-nlcst)も調査した。[公式例](https://github.com/syntax-tree/mdast-util-to-nlcst#use)は装飾を跨ぐ位置を保持するが、[実装のpatch](https://github.com/syntax-tree/mdast-util-to-nlcst/blob/main/lib/index.js)はdecoded valueの長さを元の開始位置へ加算する。7.0.1＋mdast-util-from-markdown 2.1.0＋parse-latin 7.0.0＋vfile 6.0.3の実行で、`&amp; 雲を食べる。`はoffset 2（正しくは6）、`\* 雲を食べる。`はoffset 2（正しくは3）を再現した。両プロジェクトの関連issue検索では解決を裏付ける報告が見つからなかったため、安全な位置対応の代替には採用しない。
-- JSON-RPCの導入にはPython側の変更とプロセス寿命の接続が引き続き必要になる。操作が本文配列の検査一つであるため、既存の小さいJSONL形式を維持する。日本語解析や採点はこのadapterへ追加しない。
+- 操作が本文配列の検査一つであるため、JSON-RPCは導入せず、既存の小さいJSONL形式を維持する。日本語解析や採点はこのadapterへ追加しない。
 
 ## inline codeの接続（2026-10-22）
 

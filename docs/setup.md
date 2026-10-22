@@ -1,10 +1,10 @@
 # 採用済みnative解析器のセットアップ
 
-Juman++ 2.0.0-rc4から、固定KNPの標準確率CV経路へ形態素列を渡す構成を準備します。KNPの既存非CV見出しを追加feature `非CV用言見出候補`（H）として公開する二patchを使います。Hはlookup前の候補列で、Nや全最終lookup keyと同一とは扱いません。ここでは検出器・指摘判断・本文解析を実装しません。
+Juman++ 2.0.0-rc4から、固定KNPの標準確率CV経路へ形態素列を渡す構成を準備します。KNPの既存非CV見出しを追加feature `非CV用言見出候補`（H）として公開する二patchを使います。Hはlookup前の候補列で、Nや全最終lookup keyと同一とは扱いません。このページは解析器と資源のローカル導入を扱います。導入後の検査は[本体の使い方](runtime.md)へ進んでください。大容量資源・モデル・原文・生成DBはGit外へ置きます。
 
 ## 現在使える準備コマンド
 
-`tools/setup-native.py`は準備・build・設定・verifyを行う独立scriptです。configure／verify／既存資源のoffline再利用にはPython 3.12の標準libraryだけを使います。ネットワーク取得時だけ既存pin `fsspec==2026.7.0`・`aiohttp==3.14.5` が必要です。
+`tools/setup-native.py`は資源の準備・build・設定・verifyを行う独立scriptです。ここでの`prepare`は資源取得であり、本体の`native-japanese prepare`による派生索引の準備とは異なります。configure／verify／既存資源のoffline再利用にはPython 3.12の標準libraryだけを使います。ネットワーク取得時だけ既存pin `fsspec==2026.7.0`・`aiohttp==3.14.5` が必要です。
 
 ```sh
 # Python 3.12以上。確認済みのgcc/g++でpure-cdbの拡張をbuildします。
@@ -55,7 +55,7 @@ KNPのruntime辞書は11fileです。auto 1、gcf 1、scode 2、ebcf 7（cf.db/c
 
 上記`uv sync --locked --extra setup`はdevを含む一環境として導入・import・固定モデルloadまで確認済みです。pure-cdbの拡張buildではPython既定CCのclangがhostにないため既存gcc/g++を明示しました。別venvでの以前の検証や、先行scratch環境での26packages解決は別の証拠です。製品のvenv分割や独立vectorプロセスを必須にしません。
 
-準備済みの環境に対して、`python tools/setup-native.py check-python`でcoreのpinとimport、`--vector --assets-dir "$CACHE"`でvectorも確認できます。vector loadは現行adapterと同様、許可済み21,944,687 bytes／SHAを同一bytesで照合し、private snapshotだけを公開loaderへ渡します。任意pickleや隣接sidecar、自動別モデル取得はありません。本体統合時には現行adapterと検証loaderの二重保守を避けるよう共通化する対象です。
+準備済みの環境に対して、`python tools/setup-native.py check-python`でcoreのpinとimport、`--vector --assets-dir "$CACHE"`でvectorも確認できます。vector loadは現行adapterと同様、許可済み21,944,687 bytes／SHAを同一bytesで照合し、private snapshotだけを公開loaderへ渡します。任意pickleや隣接sidecar、自動別モデル取得はありません。起動前のnative設定検証と固定vectorのloaderは`native_japanese.resources`へ共通化し、setupと本体から利用しています。
 
 ## 出自と確認範囲
 
