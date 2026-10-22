@@ -54,6 +54,8 @@ Juman++ 2.0.0-rc4（辞書20210915-2a1662a）、KNP 5.0 revision `bc4cef1`、rho
 
 releaseの依存はPython 3.9以上3.14未満、PyTorch 2.4以上2.8未満等。Python 3.12、CPU版PyTorch 2.7.1を使用する。新規checkpointは[公式配布のword tiny](https://huggingface.co/ku-nlp/kwja-checkpoints/blob/4c5db234089ca9e524fc5d32d383bc45e6fe27a2/word_deberta-v2-tiny.ckpt)一本、44,135,170 bytes、SHA-256 `eca1a9ae0c3a6acb4f73fea67170a3b628a4933dd87d4f489739cea7ecfcd500`。別にtokenizer・configと依存パッケージが必要である。KNPの格フレーム、char・seq2seq・typoのモデルは使わない。tinyが対象文を正しく解析することやリアルタイム性は、メタデータからは分からない。
 
+固定33文書の実行では、word単独経路で再予測された読み・活用により対象語のcanon欠損を観測した。元のJuman++出力にはcanonがあり、返却32文書すべてで文境界・形態素列・spanの対応を保持していた。[writerの実装](https://github.com/ku-nlp/kwja/blob/v2.5.1/src/kwja/callbacks/word_module_writer.py)も入力形態素の順序と表層を引き継ぐ。このため、正規化は入力Juman++、主辞の選択と格関係はKWJAの公開出力から読む構成へ修正した。KWJA側の欠損を新しい活用処理で補う必要はない。
+
 保守はrelease日だけで判断していない。stable 2.5.1は2025年8月、mainには2026年9月の実質変更があり、devには[word推論のメモリ改善 #260](https://github.com/ku-nlp/kwja/pull/260)と[長さ超過での未解析通知 #264](https://github.com/ku-nlp/kwja/pull/264)がmergeされている。これらdevの変更をstableに含まれるものとは扱わない。限定照合では入力ID・表層・位置の保存を確認し、欠落を未観測へ読み替えない。
 
 ## issueから分かったこと
