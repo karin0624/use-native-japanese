@@ -1,79 +1,55 @@
-"""aliasの等分・IDの一票・不能と方向の分離を小さいvectorで確認する。"""
+"""lemma合成・等票平均・不能と支持ゼロの違いを確認する。"""
 
 import numpy as np
 import pytest
 from gensim.models import KeyedVectors
 
-from native_japanese.support import Vectors, direction, group_mean, item_mean
+from native_japanese.support import Vectors, direction, group_mean
 
 
 def vector_model():
     model = KeyedVectors(vector_size=300)
-    values = np.zeros((5, 300), dtype=np.float32)
-    values[0, :2] = (1, 0)
-    values[1, :2] = (0, 1)
-    values[2, :2] = (-1, 0)
-    values[3, :2] = (0, 0)
-    values[4, :2] = (np.nan, 0)
-    model.add_vectors(["東", "北", "西", "零", "非有限"], values)
+    values = np.zeros((7, 300), dtype=np.float32)
+    values[:3, :2] = ((5, 0), (0, 2), (-3, 0))
+    values[4, 0] = np.nan
+    values[5, :2] = (1, 1)
+    values[6, 0] = 2
+    model.add_vectors(["東", "北", "西", "零", "非有限", "入力", "a/+ b"], values)
     return Vectors(model)
 
 
-def test_alias_mean_then_equal_ids_without_renormalizing():
+def test_lemmas_are_not_reparsed_and_components_have_equal_norm():
     vectors = vector_model()
-    aliases = {
-        "1": (b"\xff", "東/ひがし".encode(), "北/きた".encode()),
-        "2": ("西/にし".encode(),),
-        "3": ("零/れい".encode(),),
-    }
-    first = item_mean("1", lambda key: aliases.get(key, ()), vectors)
-    assert first[:2] == pytest.approx((0.5, 0.5))
-    mean, comparable, total, reason = group_mean(("1", "2", "3", "1?2"), aliases.get, vectors)
-    assert (comparable, total, reason) == (2, 4, None)
-    assert mean[:2] == pytest.approx((-0.25, 0.25))
-    x, _ = vectors.compose(("東/ひがし",))
-    assert direction(x, mean) == pytest.approx(-1 / np.sqrt(2))
-    assert float(x @ mean) == pytest.approx(-0.25)
+    result, reason = vectors.compose(("東", "北"))
+    assert reason is None and result[:2] == pytest.approx((1 / np.sqrt(2),) * 2)
+    assert vectors.compose(("a/+ b",))[0][0] == pytest.approx(1)
+    assert vectors.compose(("東", "未収録"))[0] is None
 
 
-def test_full_compound_product_is_streamed_and_missing_component_is_not_shortened():
+def test_distinct_nouns_get_equal_votes_and_fixed_direction():
     vectors = vector_model()
-    aliases = {
-        "1": ("東/ひがし".encode(), "北/きた".encode()),
-        "2": ("東/ひがし".encode(), "西/にし".encode()),
-    }
-    # 東+西のゼロ合成は不能。他の三つを等分し、成分平均へ置換しない。
-    result = item_mean("1+2", aliases.get, vectors)
-    expected = np.mean(
-        [
-            vectors.compose(pair)[0]
-            for pair in [
-                ("東/ひがし", "東/ひがし"),
-                ("北/きた", "東/ひがし"),
-                ("北/きた", "西/にし"),
-            ]
-        ],
-        axis=0,
-        dtype=np.float64,
-    )
-    assert result == pytest.approx(expected)
-    assert item_mean("1+9", lambda key: aliases.get(key, ()), vectors) is None
-    assert item_mean("1?2", aliases.get, vectors) is None
-    assert item_mean("6", lambda key: ("<主体準>".encode(),), vectors) is None
+    # distinct化は正本が行う。ここへは逐次入力を渡し、比較不能を分母へ含める。
+    mean, comparable, total, reason = group_mean(iter([("東",), ("北",), ("零",)]), vectors)
+    assert (comparable, total) == (2, 3)
+    assert reason
+    assert mean[:2] == pytest.approx((0.5, 0.5))
+    x, _ = vectors.compose(("東",))
+    assert direction(x, mean) == pytest.approx(1 / np.sqrt(2))
+    assert float(x @ mean) == pytest.approx(0.5)
 
 
 def test_empty_zero_nonfinite_and_singleton_direction():
     vectors = vector_model()
-    assert group_mean((), lambda key: (), vectors)[:3] == (None, 0, 0)
-    assert vectors.compose(("非有限/ひゆうげん",))[0] is None
-    assert vectors.compose(("零/れい",))[0] is None
-    x, _ = vectors.compose(("東/ひがし",))
+    assert group_mean(iter(()), vectors)[:3] == (None, 0, 0)
+    for noun in ("零", "非有限", "未収録"):
+        assert vectors.compose((noun,))[0] is None
+    assert vectors.compose(())[0] is None
+    assert vectors.compose(("東", "西"))[0] is None
+    x, _ = vectors.compose(("東",))
     assert direction(x, x) == pytest.approx(1)
     assert direction(x, np.zeros(300)) is None
+    assert direction(np.zeros(300), x) is None
     assert direction(x, np.full(300, np.nan)) is None
-    assert direction(x, x.astype(np.float64) * 1e-300) == pytest.approx(1)
-    mean, count, total, reason = group_mean(
-        ("1", "2"), {"1": ("東/ひがし".encode(),), "2": ("西/にし".encode(),)}.get, vectors
-    )
-    assert count == total == 2
-    assert reason and direction(x, mean) is None
+    assert direction(x, x * 1e-300) == pytest.approx(1)
+    mean, count, total, reason = group_mean(iter([("東",), ("西",)]), vectors)
+    assert count == total == 2 and reason and direction(x, mean) is None

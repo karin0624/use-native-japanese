@@ -4,9 +4,12 @@ version = "0.0.0"
 description = "日本語の語の組合せを用例に照らして位置付きで確認するツール"
 requires-python = ">=3.12"
 dependencies = [
-    "rhoknp==1.8.2",
-    "pure-cdb==4.0.0",
-    "cohesion-tools==0.7.7",
+    "ginza==5.3.0",
+    "ja-ginza==5.3.0",
+    "spacy==3.8.16",
+    "SudachiPy==0.6.11",
+    "SudachiDict-core==20260723",
+    "pyprobables==0.7.0",
     "compress-fasttext==0.1.5",
     "gensim==4.4.0",
     "numpy==2.5.4",

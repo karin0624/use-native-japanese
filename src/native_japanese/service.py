@@ -1,4 +1,4 @@
-"""解析結果と直接観測・比較可能な支持を結び、原文の端点を返す。"""
+"""解析結果と近似集合・比較可能な支持を結び、原文の端点を返す。"""
 
 import math
 from collections.abc import Iterable
@@ -6,11 +6,9 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
-from .caseframes import Reference
-from .examples import Examples
 from .models import Analysis, Query, Relation
 from .parser import Parser
-from .resources import read_runtime
+from .reference import Reference
 from .support import Support
 
 
@@ -47,25 +45,17 @@ class Inspector:
 
     def __init__(
         self,
-        config_path: str | Path,
-        cache_path: str | Path,
-        examples_path: str | Path | None = None,
+        reference_path: str | Path,
+        assets_dir: str | Path,
         threshold: float = 0.35,
-        timeout: float = 30,
     ):
         if not math.isfinite(threshold) or not -1 <= threshold <= 1:
             raise ValueError("thresholdには有限の-1以上1以下の数を指定してください。")
         self.threshold = threshold
         self._stack = ExitStack()
         try:
-            runtime = read_runtime(Path(config_path))
-            self.reference = self._stack.enter_context(Reference(runtime, cache_path))
-            self.examples = (
-                self._stack.enter_context(Examples(examples_path))
-                if examples_path is not None
-                else None
-            )
-            self.parser = Parser(runtime, timeout=timeout)
+            self.reference = self._stack.enter_context(Reference(reference_path, assets_dir))
+            self.parser = Parser()
             self._stack.callback(self.parser.close)
         except BaseException:
             self._stack.close()
@@ -85,28 +75,18 @@ class Inspector:
 
     def lint(self, text: str) -> LintResult:
         analysis = self.analyze(text)
+        return self._assess(analysis)
+
+    def _assess(self, analysis: Analysis) -> LintResult:
         assessments = []
         diagnostics = []
         for relation in analysis.relations:
             queries = []
-            # 追加集合の直接観測があれば、基底のモデル計算を必要としない。
-            if self.examples is not None:
-                for query in relation.queries:
-                    evidence = self.examples.lookup(query)
-                    if evidence:
-                        queries.append(QueryAssessment(query, Support(True, None, None, evidence)))
-            if not queries:
-                for query in relation.queries:
-                    observed = self.reference.observed(query)
-                    if observed is not None:
-                        queries.append(QueryAssessment(query, observed))
-                        break
-            if not queries:
-                for query in relation.queries:
-                    support = self.reference.assess(query)
-                    queries.append(QueryAssessment(query, support))
-                    if support.observed:
-                        break
+            for query in relation.queries:
+                support = self.reference.assess(query)
+                queries.append(QueryAssessment(query, support))
+                if support.indexed:
+                    break
             scores = [item.support.score for item in queries if item.support.score is not None]
             score = max(scores) if scores else None
             reasons = tuple(
@@ -117,8 +97,8 @@ class Inspector:
                     )
                 )
             )
-            if any(item.support.observed for item in queries):
-                status = "observed"
+            if any(item.support.indexed for item in queries):
+                status = "indexed"
             elif score is None:
                 status = "unavailable"
                 if not reasons:
@@ -128,7 +108,7 @@ class Inspector:
                 noun = relation.argument.text if relation.argument else "項"
                 message = (
                     f"「{noun}」と「{relation.predicate.text}」の組合せを確認してください。"
-                    "直接の用例がなく、比較できる用例群からの支持が低い状態です。"
+                    "参照索引に一致せず、比較できる用例群からの支持が低い状態です。"
                 )
                 ranges = (
                     *relation.predicate.ranges,
@@ -141,4 +121,4 @@ class Inspector:
         return LintResult(analysis, tuple(assessments), tuple(diagnostics))
 
     def lint_many(self, texts: Iterable[str]) -> tuple[LintResult, ...]:
-        return tuple(self.lint(text) for text in texts)
+        return tuple(self._assess(analysis) for analysis in self.parser.analyze_many(texts))

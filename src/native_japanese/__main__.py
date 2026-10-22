@@ -5,7 +5,6 @@ import json
 import sys
 from contextlib import ExitStack, redirect_stdout
 from dataclasses import asdict
-from pathlib import Path
 
 from .examples import Examples, extract_records
 
@@ -96,21 +95,21 @@ def serve(inspector):
 def arguments(argv):
     parser = argparse.ArgumentParser(description="語の組合せを用例に照らして検査します。")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("prepare", "lint", "serve", "extract"):
+    command = commands.add_parser("prepare")
+    command.add_argument("--examples", required=True)
+    command.add_argument("--reference", required=True)
+    command.add_argument("--assets-dir", required=True)
+    for name in ("lint", "serve"):
         command = commands.add_parser(name)
-        command.add_argument("--config", required=True)
-        if name in ("prepare", "lint", "serve"):
-            command.add_argument("--cache", required=True)
-        if name in ("lint", "serve"):
-            command.add_argument("--examples")
-            command.add_argument("--threshold", type=float, default=0.35)
-        if name in ("lint", "serve", "extract"):
-            command.add_argument("--timeout", type=float, default=30)
-        if name == "extract":
-            command.add_argument("--source-id", required=True)
-            command.add_argument("--source-url", required=True)
-        if name in ("lint", "extract"):
+        command.add_argument("--reference", required=True)
+        command.add_argument("--assets-dir", required=True)
+        command.add_argument("--threshold", type=float, default=0.35)
+        if name == "lint":
             command.add_argument("input", nargs="?", default="-")
+    command = commands.add_parser("extract")
+    command.add_argument("--source-id", required=True)
+    command.add_argument("--source-url", required=True)
+    command.add_argument("input", nargs="?", default="-")
     command = commands.add_parser("import")
     command.add_argument("--examples", required=True)
     command.add_argument("input", nargs="?", default="-")
@@ -131,26 +130,20 @@ def main(argv=None) -> int:
                 examples = stack.enter_context(Examples(options.examples, writable=True))
                 emit(examples.import_jsonl(source))
             elif options.command == "prepare":
-                from .caseframes import Reference
-                from .resources import read_runtime
+                from .reference import build_reference
 
                 with redirect_stdout(sys.stderr):
-                    reference = stack.enter_context(
-                        Reference(
-                            read_runtime(Path(options.config)),
-                            options.cache,
-                        )
+                    prepared = build_reference(
+                        options.examples, options.reference, options.assets_dir
                     )
-                    prepared = reference.prepare()
                 emit(prepared)
             elif options.command == "extract":
                 from .parser import Parser
-                from .resources import read_runtime
 
                 if not options.source_id.strip() or not options.source_url.strip():
                     raise ValueError("出典IDと出典の所在には空でない文字列が必要です。")
                 with redirect_stdout(sys.stderr):
-                    parser = Parser(read_runtime(Path(options.config)), timeout=options.timeout)
+                    parser = Parser()
                     stack.callback(parser.close)
                     analysis = parser.analyze(source.read())
                 for record in extract_records(analysis, options.source_id, options.source_url):
@@ -161,11 +154,9 @@ def main(argv=None) -> int:
                 with redirect_stdout(sys.stderr):
                     inspector = stack.enter_context(
                         Inspector(
-                            options.config,
-                            options.cache,
-                            options.examples,
+                            options.reference,
+                            options.assets_dir,
                             options.threshold,
-                            options.timeout,
                         )
                     )
                 if options.command == "serve":

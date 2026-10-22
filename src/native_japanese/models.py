@@ -2,13 +2,24 @@
 
 from dataclasses import dataclass
 
+NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-v1"
+PARSER_VERSIONS = {
+    "ginza": "5.3.0",
+    "ja-ginza": "5.3.0",
+    "spacy": "3.8.16",
+    "SudachiPy": "0.6.11",
+    "SudachiDict-core": "20260723",
+}
+
 
 @dataclass(frozen=True)
 class Query:
-    predicate: str
+    predicate: tuple[str, ...]
     predicate_type: str
-    case: str
-    noun: str
+    dependency: str
+    noun: tuple[str, ...]
+    noun_type: str
+    noun_role: str
 
 
 @dataclass(frozen=True)
