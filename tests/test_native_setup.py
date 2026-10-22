@@ -15,6 +15,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 setup = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(setup)
+resources = importlib.import_module("native_japanese.resources")
 
 
 def asset(payload):
@@ -77,7 +78,7 @@ class NativeSetupTest(unittest.TestCase):
             model = Path(directory) / "fasttext-ja-mini"
             model.write_bytes(b"arbitrary pickle")
             with self.assertRaisesRegex(ValueError, "固定vector"):
-                setup.load_fixed_vector(Path(directory))
+                resources.load_fixed_vector(Path(directory))
 
     def test_verified_runtime_change_is_not_silently_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -91,7 +92,7 @@ class NativeSetupTest(unittest.TestCase):
                 {
                     "schema": 1,
                     "contract": "fixture",
-                    "metadata_sha256": setup.sha256(setup.METADATA),
+                    "metadata_sha256": resources.metadata_sha256(),
                     "prefix": str(prefix),
                     "options": ["-r", str(prefix / "etc/knprc")],
                     "files": [
@@ -99,18 +100,16 @@ class NativeSetupTest(unittest.TestCase):
                     ],
                 },
             )
-            args = argparse.Namespace(config=config, full=False)
             with (
-                patch.object(setup, "metadata", return_value=data),
-                patch.object(setup, "required_files", return_value=["binary"]),
+                patch.object(resources, "metadata", return_value=data),
+                patch.object(resources, "required_files", return_value=["binary"]),
             ):
-                setup.verify(args)
+                self.assertEqual(resources.read_runtime(config)["contract"], "fixture")
                 binary.write_bytes(b"modified")
                 with self.assertRaisesRegex(ValueError, "identity変更"):
-                    setup.verify(args)
-                args.full = True
+                    resources.read_runtime(config)
                 with self.assertRaisesRegex(ValueError, "hash不一致"):
-                    setup.verify(args)
+                    resources.read_runtime(config, full=True)
                 record = json.loads(config.read_text())
                 self.assertEqual(
                     record["files"][0]["sha256"], hashlib.sha256(b"original").hexdigest()

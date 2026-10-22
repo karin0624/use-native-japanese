@@ -21,7 +21,7 @@ python3 tools/setup-native.py configure --assets-dir "$CACHE" --prefix "$PREFIX"
 python3 tools/setup-native.py verify --config "$PREFIX/etc/native-runtime.json"
 ```
 
-prepareの資源ID・相対path・サイズ・期待SHA-256・公式URLは [native-assets.json](../tools/native-assets.json) が正本です。基本例は公式配布から必要資源を取得し、公式KNP sourceの固定commitからbuildします。`--include-vector`は許可したcompactモデルも準備します。KNP ZIPは既存のfsspec readahead＋zipfile経路を再利用し、全ZIPを保存せず必要memberだけ読みます。固定配布identity、条件付きRange／206、member size／CRC／EOFに加え、**既知SHAへ一致してから**`.part`をrenameします。資源準備は15分、展開残量＋512MiBの空きを要求します。既存fileのhash不一致を自動更新や別モデルで置き換えません。
+prepareの資源ID・相対path・サイズ・期待SHA-256・公式URLは [native-assets.json](../src/native_japanese/data/native-assets.json) が正本です。基本例は公式配布から必要資源を取得し、公式KNP sourceの固定commitからbuildします。`--include-vector`は許可したcompactモデルも準備します。KNP ZIPは既存のfsspec readahead＋zipfile経路を再利用し、全ZIPを保存せず必要memberだけ読みます。固定配布identity、条件付きRange／206、member size／CRC／EOFに加え、**既知SHAへ一致してから**`.part`をrenameします。資源準備は15分、展開残量＋512MiBの空きを要求します。既存fileのhash不一致を自動更新や別モデルで置き換えません。
 
 ## 既存資源を再利用する場合
 

@@ -11,45 +11,31 @@ import signal
 import subprocess
 import sys
 import tarfile
-import tempfile
 import time
 import zipfile
 from importlib import import_module
-from importlib.metadata import version
 from pathlib import Path
 from urllib.request import urlopen
 
+# source checkoutからstdlibだけでもsetupを起動できるようにする。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from native_japanese.resources import (
+    check_asset,
+    check_versions,
+    identity,
+    load_fixed_vector,
+    metadata,
+    metadata_sha256,
+    read_runtime,
+    require,
+    required_files,
+    save,
+    sha256,
+)
+
 TOOLS = Path(__file__).resolve().parent
-METADATA = TOOLS / "native-assets.json"
 RESERVE = 512 << 20
-
-
-def require(condition, message):
-    if not condition:
-        raise ValueError(message)
-
-
-def metadata():
-    return json.loads(METADATA.read_text())
-
-
-def sha256(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
-def check_asset(path, item):
-    require(
-        path.is_file() and path.stat().st_size == item["bytes"], f"資源size不一致: {item['id']}"
-    )
-    require(sha256(path) == item["sha256"], f"資源SHA-256不一致: {item['id']}")
-
-
-def save(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".part")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
-    temporary.replace(path)
 
 
 def write_verified(stream, target, item):
@@ -210,44 +196,13 @@ def prepare(args):
         root / "assets-manifest.json",
         {
             "contract": data["contract"],
-            "metadata_sha256": sha256(METADATA),
+            "metadata_sha256": metadata_sha256(),
             "assets": [
                 {"id": x["id"], "path": str((root / x["path"]).resolve()), "sha256": x["sha256"]}
                 for x in selected
             ],
         },
     )
-
-
-def identity(path):
-    stat = path.stat()
-    return {
-        "resolved": str(path.resolve()),
-        "bytes": stat.st_size,
-        "mtime_ns": stat.st_mtime_ns,
-        "ctime_ns": stat.st_ctime_ns,
-        "device": stat.st_dev,
-        "inode": stat.st_ino,
-    }
-
-
-def required_files(data):
-    return [
-        "bin/knp",
-        "bin/jumanpp",
-        "etc/knprc",
-        "build.json",
-        "libexec/jumanpp/jumandic.config",
-        "libexec/jumanpp/jumandic.jppmdl",
-        *["share/juman/dic/" + name for name in data["grammar_files"]],
-        *["share/knp/rule/" + name + ".data" for name in data["rules"]],
-        *["share/knp/dict/" + name for name in data["generated_dict"]],
-        *[
-            "share/knp/dict/" + x["path"].removeprefix("knp/")
-            for x in data["assets"]
-            if "member" in x and x["id"] != "wikipedia.dat.skip"
-        ],
-    ]
 
 
 def configure(args):
@@ -258,7 +213,7 @@ def configure(args):
         and proof["status"] == "complete"
         and proof["patches"] == data["knp"]["patches"]
         and proof["revision"] == data["knp"]["revision"]
-        and proof["metadata_sha256"] == sha256(METADATA),
+        and proof["metadata_sha256"] == metadata_sha256(),
         "対応する完成build記録がありません",
     )
     config = prefix / "etc/knprc"
@@ -295,7 +250,7 @@ def configure(args):
         {
             "schema": 1,
             "contract": data["contract"],
-            "metadata_sha256": sha256(METADATA),
+            "metadata_sha256": metadata_sha256(),
             "prefix": str(prefix),
             "assets_dir": str(assets),
             "options": ["-r", str(config), *data["options"]],
@@ -309,45 +264,14 @@ def configure(args):
 
 
 def verify(args):
-    data, record = metadata(), json.loads(args.config.read_text())
-    require(
-        record["schema"] == 1
-        and record["contract"] == data["contract"]
-        and record["metadata_sha256"] == sha256(METADATA),
-        "runtime契約の不一致",
-    )
-    prefix = Path(record["prefix"])
-    require(
-        record["options"] == ["-r", str(prefix / "etc/knprc"), *data["options"]], "固定option不一致"
-    )
-    require(
-        set(required_files(data)) <= {x["path"] for x in record["files"]}, "必須runtime記録不足"
-    )
-    for item in record["files"]:
-        require(
-            not Path(item["path"]).is_absolute() and ".." not in Path(item["path"]).parts,
-            "runtime記録の相対pathが不正です",
-        )
-        path = prefix / item["path"]
-        require(path.is_file(), f"runtime file不足: {item['path']}")
-        if args.full:
-            require(sha256(path) == item["sha256"], f"runtime hash不一致: {item['path']}")
-            item.update(identity(path))
-        else:
-            require(
-                identity(path) == {k: item[k] for k in identity(path)},
-                f"runtime identity変更。完全verifyが必要: {item['path']}",
-            )
-    if args.full:
-        save(args.config, record)
+    record = read_runtime(args.config, full=args.full)
     print(json.dumps({"status": "verified", "contract": record["contract"], "full": args.full}))
 
 
 def check_python(args):
     data = metadata()
     expected = data["python"] | (data["vector_python"] if args.vector else {})
-    for name, pin in expected.items():
-        require(version(name) == pin, f"依存版不一致: {name}")
+    check_versions(expected)
     import_module("rhoknp")
     import_module("cdblib")
     require(
@@ -356,28 +280,6 @@ def check_python(args):
     if args.vector:
         load_fixed_vector(args.assets_dir.resolve())
     print(json.dumps({"status": "imported", "versions": expected}))
-
-
-def load_fixed_vector(assets):
-    """現行adapter同様、固定bytesだけを公開pickle loaderへ渡す。"""
-    data = metadata()
-    item = next(x for x in data["assets"] if x["id"] == "fasttext-ja-mini")
-    with (assets / item["path"]).open("rb") as stream:
-        payload = stream.read(item["bytes"] + 1)
-    require(
-        len(payload) == item["bytes"] and hashlib.sha256(payload).hexdigest() == item["sha256"],
-        "許可した固定vectorモデルではありません",
-    )
-    for name, pin in data["vector_python"].items():
-        require(version(name) == pin, f"依存版不一致: {name}")
-    from compress_fasttext.models import CompressedFastTextKeyedVectors
-
-    with tempfile.TemporaryDirectory(prefix="native-fixed-vector-") as directory:
-        snapshot = Path(directory) / "fasttext-ja-mini"
-        snapshot.write_bytes(payload)
-        model = CompressedFastTextKeyedVectors.load(str(snapshot))
-    require(model.vector_size == 300, "固定vectorの次元不一致")
-    return model
 
 
 def allocated_bytes(paths):
@@ -434,7 +336,7 @@ def build(args):
         "revision": data["knp"]["revision"],
         "initial_free_bytes": free,
         "command": command,
-        "metadata_sha256": sha256(METADATA),
+        "metadata_sha256": metadata_sha256(),
         "build_script_sha256": sha256(TOOLS / "build-native.sh"),
         "toolchain": {
             name: subprocess.check_output([name, "--version"], text=True).splitlines()[0]
