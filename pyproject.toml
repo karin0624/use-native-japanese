@@ -4,15 +4,14 @@ version = "0.0.0"
 description = "日本語の誤り検出手法を比較するためのデータ準備"
 requires-python = ">=3.12"
 dependencies = [
-    "igraph==1.0.0",
-    "ginza==5.3.0",
-    "ja-ginza==5.3.0",
-    "spacy==3.8.16",
-    "SudachiPy==0.6.11",
-    "SudachiDict-core==20260723",
-    "marisa-trie==1.4.1",
-    "numpy==2.3.5",
-    "pyarrow==26.0.0",
+    "rhoknp==1.8.2",
+    "pure-cdb==4.0.0",
+    "cohesion-tools==0.7.7",
+    "compress-fasttext==0.1.5",
+    "gensim==4.4.0",
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
 ]
 
 [build-system]
@@ -23,24 +22,7 @@ build-backend = "hatchling.build"
 packages = ["src/native_japanese"]
 
 [project.optional-dependencies]
-vectors = [
-    "compress-fasttext==0.1.5",
-    "gensim==4.4.0",
-    "scipy==1.17.0",
-    "scikit-learn==1.8.0",
-]
-detector = [
-    "torch==2.14.1",
-    "transformers==5.20.2",
-    "fugashi==1.5.2",
-    "unidic-lite==1.0.8",
-    "spacy-alignments==0.9.2",
-]
-data = [
-    "numpy==2.3.5",
-    "scipy==1.17.0",
-    "scikit-learn==1.8.0",
-]
+setup = ["fsspec==2026.7.0", "aiohttp==3.14.5"]
 
 [dependency-groups]
 dev = ["pytest~=9.1.1", "ruff~=0.17.1"]
@@ -56,12 +38,13 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+[tool.uv]
+# 検証済みcompactモデル環境の間接依存も同じlockへ固定する。
+constraint-dependencies = [
+    "cloudpickle==3.1.2",
+    "joblib==1.6.0",
+    "narwhals==2.27.1",
+    "smart_open==8.0.4",
+    "threadpoolctl==3.7.0",
+    "wrapt==2.5.1",
 ]

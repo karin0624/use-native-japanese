@@ -32,12 +32,12 @@ Prediction JSONLは次の形に統一する。
 
 ## 実行
 
-Python 3.12、SciPy 1.17.0で人工テスト9件を確認した。依存は既存の `data` extraを利用する。リポジトリ直下から実行する。
+Python 3.12で実行する。初期確認時のSciPy 1.17.0から、採用環境のSciPy 1.18.1へ統合した後も既存試験を確認した。依存は`pyproject.toml`と`uv.lock`に含まれる。リポジトリ直下から実行する。
 
 ```bash
-OPENBLAS_NUM_THREADS=1 uv run --extra data pytest tests/test_evaluate_detection.py -q
-uv run --extra data python scripts/evaluate_detection.py prepare-corrected --teacher-dev /絶対パス/旧教師/dev.jsonl --output /絶対パス/corrected-dev.jsonl
-uv run --extra data python scripts/evaluate_detection.py select-dev --gold /絶対パス/寺村/dev.jsonl --predictions /絶対パス/寺村-dev-scores.jsonl --corrected-gold /絶対パス/corrected-dev.jsonl --corrected-predictions /絶対パス/corrected-dev-scores.jsonl --output /絶対パス/dev-report.json
+OPENBLAS_NUM_THREADS=1 uv run --locked pytest tests/test_evaluate_detection.py -q
+uv run --locked python scripts/evaluate_detection.py prepare-corrected --teacher-dev /絶対パス/旧教師/dev.jsonl --output /絶対パス/corrected-dev.jsonl
+uv run --locked python scripts/evaluate_detection.py select-dev --gold /絶対パス/寺村/dev.jsonl --predictions /絶対パス/寺村-dev-scores.jsonl --corrected-gold /絶対パス/corrected-dev.jsonl --corrected-predictions /絶対パス/corrected-dev-scores.jsonl --output /絶対パス/dev-report.json
 ```
 
 入力・出力に固定パスは使わない。別ディレクトリからは、スクリプトと入出力の絶対パスを指定できる。
