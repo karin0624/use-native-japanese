@@ -52,13 +52,15 @@ npm test
 
 ## Markdownの位置と検査範囲
 
-textlintの`Paragraph`と`Header`から本文を抽出する。強調・取り消し線・リンクの表示文字は連結するため、`**雲**を[食べる](url)`を`雲を食べる`として検査できる。inline code、fence、画像、HTML、未知ノードは対象から除外し、その前後を連結しない。文書全体の集約後に一括要求するので、逐次生成中の呼び出し・debounce等は利用側の役割となる。
+textlintの`Paragraph`と`Header`から本文を抽出する。強調・取り消し線・リンク・inline codeの本文は連結するため、`**雲**を[食べる](url)`を`雲を食べる`、`` `Pod`を削除する ``を`Podを削除する`として検査できる。fenceは対象外とし、画像・HTML・未知ノードの前後は連結しない。文書全体の集約後に一括要求するので、逐次生成中の呼び出し・debounce等は利用側の役割となる。
+
+inline codeはmicromark 4.0.3でDocument原文を一度解析し、textlintのCodeと範囲・本文が一致するtokenを使う。引用・リストの継続行にある構文記号も既存parserが処理する。本文はCode.valueを保持し、LF・CRLFをHTML表示用の空白へ置き換えない。tokenの原文部分文字列やUTF-16幅が一致しない場合は処理エラーを返す。例えばcode中のNULはparserによる置換で原文と異なるためエラーとなる。
 
 hard breakの`Break`葉は原文の`raw`を保持するため、改行直前のMarkdown用バックスラッシュや末尾スペースも検査器へ渡る。外部backend接続時は、それらが指摘結果へ与える影響を確認する必要がある。
 
 指摘範囲は`StringSource`とtextlintの`locator.range`で原文位置へ戻す。装飾を跨ぐ指摘はその間のMarkdown記号を含む原文範囲になる。訂正候補は案内に留め、`fix`や自動置換は提供しない。
 
-**制限:** `&amp;`などの文字参照や`\*`などのescapeで、ASTの葉の`raw`と`value`が一致しない場合、その葉全体を未検査にする。`&amp; 雲を食べる。`は段落全体が一つの葉になるため未検査。`&amp; **雲を食べる**。`では後ろの独立した安全な葉を検査できる。この境界の前後は連結しない。原文からの完全な位置対応を検証できない葉を推測で処理しない。
+**制限:** `&amp;`などの文字参照や`\*`などのescapeで、通常本文のStr葉の`raw`と`value`が一致しない場合、その葉全体を未検査にする。`&amp; 雲を食べる。`は段落全体が一つの葉になるため未検査。`&amp; **雲を食べる**。`では後ろの独立した安全な葉を検査できる。この境界の前後は連結しない。原文からの完全な位置対応を検証できない葉を推測で処理しない。
 
 ## 選択理由と追加調査（2026-10-21）
 
@@ -66,5 +68,13 @@ hard breakの`Break`葉は原文の`raw`を保持するため、改行直前のM
 - `new StringSource(段落)`だけでは`&amp; 雲を食べる。`の「雲」を原文offset 6ではなく2へ戻す。ASTの葉の範囲、rawとvalue、原文部分文字列の一致を確かめてからStringSourceへ渡す。
 - 代替候補の[mdast-util-to-nlcst](https://github.com/syntax-tree/mdast-util-to-nlcst)も調査した。[公式例](https://github.com/syntax-tree/mdast-util-to-nlcst#use)は装飾を跨ぐ位置を保持するが、[実装のpatch](https://github.com/syntax-tree/mdast-util-to-nlcst/blob/main/lib/index.js)はdecoded valueの長さを元の開始位置へ加算する。7.0.1＋mdast-util-from-markdown 2.1.0＋parse-latin 7.0.0＋vfile 6.0.3の実行で、`&amp; 雲を食べる。`はoffset 2（正しくは6）、`\* 雲を食べる。`はoffset 2（正しくは3）を再現した。両プロジェクトの関連issue検索では解決を裏付ける報告が見つからなかったため、安全な位置対応の代替には採用しない。
 - JSON-RPCの導入にはPython側の変更とプロセス寿命の接続が引き続き必要になる。操作が本文配列の検査一つであるため、既存の小さいJSONL形式を維持する。日本語解析や採点はこのadapterへ追加しない。
+
+## inline codeの接続（2026-10-22）
+
+[micromark 4.0.3](https://www.npmjs.com/package/micromark/v/4.0.3)を直接依存として固定し、[公開rootのparse・preprocess・postprocess](https://unpkg.com/micromark@4.0.3/index.js)を使う。[codeTextのtoken](https://github.com/micromark/micromark/blob/main/packages/micromark-core-commonmark/dev/lib/code-text.js)が返す本文と元位置をStr形式へ接続するため、backtickやpaddingの規則をadapterで再実装しない。Code.raw単体の再解析では引用・リスト継続行の文脈を失うため、Document原文を使う。
+
+[StringSourceの公式例](https://github.com/textlint/textlint-util-to-string/tree/v3.3.4#tostring-string)にもcodeを含む本文連結があるが、非Str葉の装飾位置を推定する実装をそのまま使わず、検証済みtokenの範囲を渡す。[mdastのissue #48](https://github.com/syntax-tree/mdast-util-from-markdown/issues/48)でも、valueと原文range内の文字列が異なることはASTの仕様と説明されている。textlintの拡張構文とmicromarkの全般的な同一性は保証せず、対応するCodeの範囲・本文が一致しない場合は明示的に失敗させる。
+
+追加parseの固定2入力での観察は、Node.js 24.19.0で、11 UTF-16単位の短文が初回26.6ms・中央値1.0ms、1,868単位の技術文が初回47.1ms・中央値18.6msだった。各入力で3回の予備実行後に25回測定した。対象はpreprocess・parse・postprocessのみで、module読込、ASTとの照合、worker、日本語解析を含まず、一般的な速度を保証しない。
 
 `npm test`はNode標準test runnerで実行する。人工workerは通信・位置・寿命の回帰試験用で、日本語の正しさ・訂正精度・モデル速度の証拠ではない。

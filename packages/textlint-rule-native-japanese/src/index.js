@@ -1,8 +1,28 @@
 import { StringSource } from "textlint-util-to-string";
+import { parse, preprocess, postprocess } from "micromark";
 import { configuration, getWorker } from "./worker.js";
 
-// ASTの葉を使う。装飾文字の推測やMarkdownの再解析は行わない。
-export function plainSegments(node) {
+// 文書全体を解析し、引用・リストの継続行も既存parserの位置情報で扱う。
+function inlineCodeSpans(text) {
+    const events = postprocess(parse().document().write(preprocess()(text, undefined, true)));
+    const spans = new Map();
+    let current;
+    for (const [kind, token, context] of events) {
+        if (kind === "enter" && token.type === "codeText") {
+            current = { raw: text.slice(token.start.offset, token.end.offset), children: [] };
+            spans.set(`${token.start.offset}:${token.end.offset}`, current);
+        } else if (kind === "exit" && token.type === "codeText") {
+            current = undefined;
+        } else if (current && kind === "enter" && ["codeTextData", "lineEnding"].includes(token.type)) {
+            const range = [token.start.offset, token.end.offset];
+            current.children.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
+        }
+    }
+    return spans;
+}
+
+// ASTの葉とparserが返したtokenだけを接続し、Markdownの装飾位置を推測しない。
+export function plainSegments(node, codeSpans) {
     const segments = [];
     let leaves = [];
     const flush = () => {
@@ -17,6 +37,17 @@ export function plainSegments(node) {
     const visit = child => {
         if (["Strong", "Emphasis", "Delete", "Link", "LinkReference"].includes(child.type)) {
             child.children?.forEach(visit);
+        } else if (child.type === "Code") {
+            const [start, end] = child.range;
+            const span = codeSpans.get(`${start}:${end}`);
+            if (!span || span.raw !== child.raw ||
+                node.raw.slice(start - node.range[0], end - node.range[0]) !== span.raw ||
+                span.children.map(leaf => leaf.value).join("") !== child.value ||
+                span.children.some(leaf => leaf.raw !== leaf.value || leaf.range[0] < start ||
+                    leaf.range[1] > end || leaf.range[1] - leaf.range[0] !== leaf.value.length)) {
+                throw new Error("native-japanese: inline codeのASTと原文tokenが一致しません。");
+            }
+            leaves.push(...span.children);
         } else if (child.type === "Str" || child.type === "Break") {
             const value = child.type === "Break" ? child.raw : child.value;
             const [start, end] = child.range;
@@ -28,7 +59,7 @@ export function plainSegments(node) {
                 leaves.push({ ...child, type: "Str", value });
             }
         } else {
-            // Code、Image、Html、未知の拡張ノードは評価対象を分離する。
+            // Image、Html、未知の拡張ノードは評価対象を分離する。
             flush();
         }
     };
@@ -44,13 +75,16 @@ function splitsSurrogate(text, index) {
 
 export default function rule(context, options = {}) {
     const config = configuration(options);
-    const segments = [];
+    const nodes = [];
     const { Syntax, report, RuleError, locator } = context;
-    const collect = node => segments.push(...plainSegments(node));
+    const collect = node => nodes.push(node);
     return {
         [Syntax.Paragraph]: collect,
         [Syntax.Header]: collect,
-        async [`${Syntax.Document}:exit`]() {
+        async [`${Syntax.Document}:exit`](document) {
+            if (!nodes.length) return;
+            const codeSpans = inlineCodeSpans(document.raw);
+            const segments = nodes.flatMap(node => plainSegments(node, codeSpans));
             if (!segments.length) return;
             const results = await getWorker(config).request(segments.map(segment => segment.text));
             for (let i = 0; i < results.length; i++) {

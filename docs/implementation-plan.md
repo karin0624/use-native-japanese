@@ -16,7 +16,7 @@
 
 textlint側でinline codeを除外すると、技術文の「`Pod`を削除する」から対象語が落ちる。既存AST・library・issueの限定調査により、micromark 4.0.3の公開root APIから位置付きのcode tokenを得られることを確認した。文書全体を一度解析し、textlintのCode.range/valueと一致するtokenを元位置付きのStrとして既存StringSourceへ渡す。引用・リストの継続行はCode.raw単体の解析では文脈を失うため、Document原文を使う。backtick・padding・改行の解釈を再実装しない。
 
-この入力保持だけを独立して実装し、range・value・UTF-16幅の不一致は処理エラーにする。既存worker、診断形式、検査対象のParagraph/Header、entity/escapeの制限は変えない。通常codeと周辺語、複数backtick・padding、引用・リスト継続、絵文字の位置を少数fixtureへまとめ、既存境界も確認する。fresh contextで単純さ・無駄な試験をレビューし、追加parse費用を小さい固定入力で確認する。根拠と12個の限定観察はGit外の`markdown-input-20261022.md`にある。採点や製品閾値の判断とは独立した修正である。
+この入力保持は実装済みで、range・value・UTF-16幅の不一致は処理エラーにする。既存worker、診断形式、検査対象のParagraph/Header、entity/escapeの制限は維持した。通常codeと周辺語、複数backtick・padding、引用・リスト継続、絵文字を含む接続試験16件が成功し、fresh contextレビューに必須修正は残っていない。追加parseの固定技術文1,868 UTF-16単位での中央値は18.6ms。検出器を含む速度ではない。根拠と限定観察はGit外の`markdown-input-20261022.md`、制約は[textlintの説明](textlint.md)にある。
 
 全文確認とは独立して、採用済みの解析器・資源接続を再現する導入手順を実装する。Git外の`standard-runtime-setup-20261022.md`に固定source、二つの既存patch、配布資源とhash、実行optionを整理済みであり、この部分は指摘境界の判断に依存しない。既存の取得物・builderを再利用し、別prefixへのclean buildと導入を確認する。大容量資源は共有cacheへ置き、再取得・複製・公開しない。Pythonは既存の`pyproject.toml`と`uv.lock`による一つの環境を基本にする。検出判断や本体APIを先行実装せず、導入時のhash照合と実行時の軽い構成確認を分け、scratch絶対pathへの依存を除く。
 

@@ -50,11 +50,50 @@ test("同じ文字を含む入れ子装飾でも該当する葉の位置を使�
     assert.equal(messages[0].range[1], text.indexOf("。"));
 });
 
-test("code・画像・HTMLの前後を連結せず、fenceを除外する", async t => {
+test("inline codeを連結し、code内部と周囲を跨ぐ指摘を元位置へ戻す", async t => {
+    const { linter, log } = await setup(t);
+    const text = "# 🍣 `Pod`と`Pod`を[削除する](url)\n\n`雲を食べる`。";
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [
+        [text.indexOf("Pod"), text.indexOf("Pod") + 3],
+        [text.lastIndexOf("Pod"), text.indexOf("](url)")],
+        [text.indexOf("雲"), text.indexOf("雲") + "雲を食べる".length]
+    ]);
+    assert.equal(messages[0].column, 7);
+    assert.deepEqual((await log())[0].texts, ["🍣 PodとPodを削除する", "雲を食べる。"]);
+});
+
+test("codeのpadding・複数backtickと引用・リスト継続行の位置を保持する", async t => {
+    const { linter, log } = await setup(t);
+    const text = ["`  Pod  `を削除する。", "`` `Pod` ``を削除する。", "> `a\r\n> b`を削除する。",
+        "- `a\n  b`を削除する。"].join("\n\n");
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [
+        [text.indexOf("Pod"), text.indexOf("Pod") + 3],
+        [text.lastIndexOf("Pod"), text.lastIndexOf("Pod") + 3],
+        [text.indexOf("b"), text.indexOf("。", text.indexOf("b"))],
+        [text.lastIndexOf("b"), text.lastIndexOf("。")]
+    ]);
+    assert.deepEqual((await log())[0].texts, [" Pod を削除する。", "`Pod`を削除する。", "a\r\nbを削除する。", "a\nbを削除する。"]);
+});
+
+test("codeのAST・原文・tokenが一致しない場合は未検査にせずエラーにする", async () => {
+    const text = "`Pod`を削除する。";
+    for (const change of [{ value: "別名" }, { range: [1, 4] }, { raw: "`別名`" }]) {
+        const listeners = rule({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" } },
+            { command: [process.execPath] });
+        listeners.Paragraph({ type: "Paragraph", raw: text, range: [0, text.length],
+            children: [{ type: "Code", raw: "`Pod`", value: "Pod", range: [0, 5], ...change }] });
+        await assert.rejects(listeners["Document:exit"]({ raw: text }), /inline codeのASTと原文tokenが一致/);
+    }
+});
+
+test("画像・HTMLの前後を連結せず、fenceを除外する", async t => {
     const { linter, log } = await setup(t);
     const text = "雲を`x`食べる。\n\n`雲を食べる`\n\n```txt\n雲を食べる\n```\n\n雲を![画像](url)食べる。\n\n雲を<span>食べる</span>。";
-    assert.equal((await linter.lintText(text, "文書.md")).messages.length, 0);
-    assert.deepEqual((await log())[0].texts, ["雲を", "食べる。", "雲を", "食べる。", "雲を", "食べる", "。"]);
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [[text.indexOf("`雲") + 1, text.indexOf("`雲") + 6]]);
+    assert.deepEqual((await log())[0].texts, ["雲をx食べる。", "雲を食べる", "雲を", "食べる。", "雲を", "食べる", "。"]);
 });
 
 test("entityとescapeのある葉は未検査にし、後の安全な葉を正しく写像する", async t => {

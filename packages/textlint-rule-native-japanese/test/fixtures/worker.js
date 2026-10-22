@@ -14,7 +14,7 @@ createInterface({ input: process.stdin }).on("line", line => {
         process.stdout.write(`${JSON.stringify({ id, error: { message: "人工的な処理失敗" } })}\n`);
         return;
     }
-    const results = texts.map(text => ({ offsetEncoding: "utf-16", diagnostics: Array.from(text.matchAll(/雲を食べる/g), match => ({
+    const results = texts.map(text => ({ offsetEncoding: "utf-16", diagnostics: Array.from(text.matchAll(/雲を食べる|Pod(?:を削除する)?|bを削除する/g), match => ({
         range: [match.index, match.index + match[0].length],
         message: "人工fixtureの指摘", suggestions: ["ご飯を食べる"]
     })) }));
