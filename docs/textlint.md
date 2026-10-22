@@ -1,6 +1,6 @@
 # textlint接続
 
-このルールは[Python検査器](runtime.md)の常駐JSONL出力をtextlintの位置付き指摘へ接続します。先に[セットアップ](setup.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませてください。実解析からの指摘位置と常駐workerの再利用を確認済みです。[検証結果](runtime-validation.md)では、この実接続と人工workerによる通信・位置の試験を区別しています。
+このルールは[Python検査器](runtime.md)の常駐JSONL出力をtextlintの位置付き指摘へ接続します。先に[セットアップ](setup.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませてください。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。[旧検証結果](runtime-validation.md)の日本語指摘結果は旧方式の履歴であり、人工workerによる通信・位置の試験と区別します。
 
 ## 導入と設定
 
@@ -19,8 +19,8 @@ npm test
     "native-japanese": {
       "command": [
         "/path/to/use-native-japanese/.venv/bin/native-japanese", "serve",
-        "--config", "/path/to/native-runtime/etc/native-runtime.json",
-        "--cache", "/path/to/local/derived.sqlite3"
+        "--reference", "/path/to/reference.sqlite3",
+        "--assets-dir", "/path/to/assets"
       ],
       "requestTimeoutMs": 120000
     }
@@ -32,7 +32,7 @@ npm test
 npx textlint --config .textlintrc.json input.md
 ```
 
-追加用例を使う場合は`command`配列の末尾へ`"--examples", "/path/to/local/examples.sqlite3"`を加えます。取込方法は[出典付き用例の追加](runtime.md#出典付き用例を追加する)を参照してください。
+用例追加後は正本から参照を再compileし、新しい参照でworkerを起動します。正本DBを`command`へ渡す必要はありません。[出典付き用例の追加](runtime.md#出典付き用例を追加する)を参照してください。
 
 `command`は必須。`requestTimeoutMs`は省略時120秒で、1〜2147483647ミリ秒の整数を指定できる。モデルや手法の指定は外部command側で行う。`shell: false`で起動し、同一設定の文書ではプロセスを共有する。要求がなくなって30秒経つと終了する。常駐中の保持モデルを使うための仕組みであり、120秒はリアルタイム性を保証する値ではない。
 
