@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "contract": "knp-standard-cv-head-v1",
+  "knp": {
+    "url": "https://github.com/ku-nlp/knp",
+    "revision": "bc4cef188669f88cdeb590fe7afb1021ce2ae481",
+    "patches": {
+      "minimal-dpnd.patch": "d93de70e5d2eeeec3a344090e2ff2b1743fa69fb1a07ed1b85c2aeed2259dc6c",
+      "non-cv-predicate-head.patch": "4222ed44997078bb0aef74337f7ffdfab278e298a395be231c0459c277d2607c"
+    }
+  },
+  "zip": {
+    "url": "https://lotus.kuee.kyoto-u.ac.jp/nl-resource/knp/dict/latest/knp-dict-latest-bin.zip",
+    "bytes": 2820711932,
+    "etag": "\"a820a5fc-54e8380f86cc0\"",
+    "last_modified": "Tue, 02 May 2017 05:06:35 GMT"
+  },
+  "assets": [
+    {
+      "id": "cf.db",
+      "path": "knp/ebcf/cf.db",
+      "bytes": 20433641,
+      "sha256": "91ee45b643832ae3f4be8b7ad415fc0f370728a1ec5c4dbf09e6ec32d28de4ce",
+      "member": "dict-bin/ebcf/cf.db",
+      "compressed_bytes": 7576723,
+      "crc32": "f6402c36"
+    },
+    {
+      "id": "mrph2id.db",
+      "path": "knp/ebcf/mrph2id.db",
+      "bytes": 232591272,
+      "sha256": "32dc57656f25b9ef151452db97455da4b4310410deda2e5cf6448a405d74e5d5",
+      "member": "dict-bin/ebcf/mrph2id.db",
+      "compressed_bytes": 71478142,
+      "crc32": "245daf4b"
+    },
+    {
+      "id": "cf.dat",
+      "path": "knp/ebcf/cf.dat",
+      "bytes": 4332949641,
+      "sha256": "79599ba59ef61ea59f8c0f0fd935abaf00db6256eef8a8ca36174d6c94628250",
+      "member": "dict-bin/ebcf/cf.dat",
+      "compressed_bytes": 1587902103,
+      "crc32": "a3fcb5bb"
+    },
+    {
+      "id": "cfp.db",
+      "path": "knp/ebcf/cfp.db",
+      "bytes": 325435856,
+      "sha256": "a7e271ad0409d683c70e7682e8f3b2b4f4f91ecb47bf57dfc820a6abe0e63582",
+      "member": "dict-bin/ebcf/cfp.db",
+      "compressed_bytes": 63721383,
+      "crc32": "c980c559"
+    },
+    {
+      "id": "cfcase.db",
+      "path": "knp/ebcf/cfcase.db",
+      "bytes": 986388640,
+      "sha256": "610cc8d6e9aca0b783a315add2e694bdad361d026eb59e9afb4a89c05af13d57",
+      "member": "dict-bin/ebcf/cfcase.db",
+      "compressed_bytes": 203265631,
+      "crc32": "101a7885"
+    },
+    {
+      "id": "case.db",
+      "path": "knp/ebcf/case.db",
+      "bytes": 4229070,
+      "sha256": "6617d81e55839c0ec48774509a671aac009e2552f348c04dad20dd0e8109ead1",
+      "member": "dict-bin/ebcf/case.db",
+      "compressed_bytes": 1321738,
+      "crc32": "3b72a91b"
+    },
+    {
+      "id": "auto.db",
+      "path": "knp/auto/auto.db",
+      "bytes": 143690887,
+      "sha256": "b72ac51ea476275ec500d28452c93890ac02b31b68a7b8a8e06a8031b7990f75",
+      "member": "dict-bin/auto/auto.db",
+      "compressed_bytes": 31215190,
+      "crc32": "ceff3fdc"
+    },
+    {
+      "id": "case_soto.txt",
+      "path": "knp/ebcf/case_soto.txt",
+      "bytes": 960,
+      "sha256": "1905dd5da132922690c0e92ab8f397fa47b1eab17cecfda5662e677e372b7064",
+      "member": "dict-bin/ebcf/case_soto.txt",
+      "compressed_bytes": 316,
+      "crc32": "b4a094b9"
+    },
+    {
+      "id": "wikipedia.dat.skip",
+      "path": "knp/auto/wikipedia.dat.skip",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "member": "dict-bin/auto/wikipedia.dat.skip",
+      "compressed_bytes": 0,
+      "crc32": "00000000"
+    },
+    {
+      "id": "jumanpp-release",
+      "path": "jumanpp-2.0.0-rc4.tar.xz",
+      "bytes": 316013996,
+      "sha256": "ab2cb499306b1f7cbc3812155ee4c720357e01b408bc2200eebce16c8d9bf32f",
+      "url": "https://github.com/ku-nlp/jumanpp/releases/download/v2.0.0-rc4/jumanpp-2.0.0-rc4.tar.xz"
+    },
+    {
+      "id": "jumanpp-model",
+      "path": "jumandic.jppmdl",
+      "bytes": 427018240,
+      "sha256": "1bd2f76b0264beacd27d3924ebb7aa301deced3fc98b215d02de979afd82a617",
+      "tar_member": "jumanpp-2.0.0-rc4/model/jumandic.jppmdl"
+    },
+    {
+      "id": "fasttext-ja-mini",
+      "path": "fasttext-ja-mini",
+      "bytes": 21944687,
+      "sha256": "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7",
+      "url": "https://zenodo.org/api/records/4905385/files/fasttext-ja-mini/content",
+      "optional": "vector"
+    }
+  ],
+  "generated_dict": {
+    "gcf/scase.db": "12483c217744a00c5703f9faf37ef05a5514df7508d0d4a1209647c5ed1ac627",
+    "scode/bgh/bgh.db": "8189d58f7a1dbadfb9cf40797ac4d90710cb58628a3a2f11910189eea3487176",
+    "scode/bgh/sm2code.db": "ab814cd3f353dc1f50da7f9b4dfb3fd66124c34b127cc8de4a7b7e27453d7636"
+  },
+  "options": [
+    "-case",
+    "-tab",
+    "-para-scode",
+    "none",
+    "-analyze-deverbative-noun"
+  ],
+  "python": {
+    "rhoknp": "1.8.2",
+    "pure-cdb": "4.0.0",
+    "cohesion-tools": "0.7.7"
+  },
+  "vector_python": {
+    "compress-fasttext": "0.1.5",
+    "gensim": "4.4.0",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "scikit-learn": "1.9.1"
+  },
+  "attribution": {
+    "knp": "Kyoto University、3条項BSD。同梱JUMAN／CRF++／cdb等のnoticeを保持。別配布DBとBGHの個別適用範囲は未確認。",
+    "jumanpp": "コードApache 2.0。配布モデル20210915-2a1662aの個別適用範囲は未確認。",
+    "fasttext-ja-mini": "Liebl Bernhard, Compressed fastText Embeddings, v1.0, 2021-06-07, DOI 10.5281/zenodo.4905385。元系列fastText crawl-vectors。説明本文はCC BY-SA 3.0、record metadataはCC BY 4.0で不一致。圧縮前の厳密snapshotは未確認。",
+    "hashes": "別配布資源hashは保存済み取得値を固定期待値として使用。公式公開SHAとの照合を主張しない。"
+  },
+  "rules": [
+    "mrph_homo",
+    "mrph_auto_dic",
+    "mrph_filter",
+    "mrph_basic",
+    "mrph_ne",
+    "bnst_basic",
+    "bnst_type",
+    "bnst_etc",
+    "modality",
+    "kakari_uke",
+    "koou",
+    "clause_function",
+    "context",
+    "case_analysis",
+    "tag_after_dpnd_and_case",
+    "search_query",
+    "tag_postprocess"
+  ],
+  "grammar_files": {
+    "JUMAN.grammar": {
+      "bytes": 1343,
+      "sha256": "e9f85da1b6e4a1801ec70d021fa89074397b0a7584f72a6a775420409fbfd530"
+    },
+    "JUMAN.kankei": {
+      "bytes": 2110,
+      "sha256": "693d16368353f2c0c88d17433bdb3e4cd2007ef6845cfcf3472bc5f5451430c9"
+    },
+    "JUMAN.katuyou": {
+      "bytes": 31161,
+      "sha256": "aa6f90b6966a3e47cfab5bb2ec4eb2d8c1eb159367ffc9f946d2f47d532004e6"
+    },
+    "JUMAN.connect": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "jumandic.mat": {
+      "bytes": 7,
+      "sha256": "487a7520ed936043feda58c1843a6f1da98b00a4812e9e84635ddd7905baf992"
+    },
+    "jumandic.tab": {
+      "bytes": 20465,
+      "sha256": "20a2284168fa4bf79bed4dff419d6883439dcc67ea88e5ab9be005f89f25583c"
+    },
+    "jumandic.dat": {
+      "bytes": 104868644,
+      "sha256": "baee04b7721d897c35a00cd8d36c92fb9d51f60bbc029bd86b65028344f26a83"
+    },
+    "jumandic.da": {
+      "bytes": 22018120,
+      "sha256": "2c69d3fd6e2ad1ec1352bea023d32c35d911b981a7e728d8be1ab14bbd2f27c8"
+    },
+    "jumandic.bin": {
+      "bytes": 110261838,
+      "sha256": "8daed88e0c5ae9477ae22d80a0db1ec4e6ac4f290554e5b50e6a3ec796c22aba"
+    }
+  }
+}

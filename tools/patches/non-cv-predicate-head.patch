@@ -1,0 +1,77 @@
+diff --git a/system/case_ipal.c b/system/case_ipal.c
+index b9ad185..522cd8a 100644
+--- a/system/case_ipal.c
++++ b/system/case_ipal.c
+@@ -2346,14 +2346,16 @@ int make_ipal_cframe(SENTENCE_DATA *sp, TAG_DATA *t_ptr, int start, int flag)
+ }
+ 
+ /*==================================================================*/
+-	  void assign_pred_feature_to_bp(SENTENCE_DATA *sp)
++static void assign_pred_feature_to_bp_subcontract(SENTENCE_DATA *sp, const char *feature_name,
++    char *(*make_string)(TAG_DATA *, MRPH_DATA *, char *, int, int, int))
+ /*==================================================================*/
+ {
+-    int i, pred_merged_rep_size = DATA_LEN;
++    int i;
++    size_t pred_merged_rep_size = DATA_LEN, required_size;
+     char *pred_string, *new_pred_string, *pred_merged_rep = NULL;
+     TAG_DATA *t_ptr;
+ 
+-    /* 自立語末尾語を用いて用言代表表記を作成 */
++    /* 既存の見出し生成とALT候補の列挙を共有する。 */
+ 
+     pred_merged_rep = (char *)malloc_data(pred_merged_rep_size, "assign_pred_feature_to_bp");
+ 
+@@ -2364,9 +2366,16 @@ int make_ipal_cframe(SENTENCE_DATA *sp, TAG_DATA *t_ptr, int start, int flag)
+ 	    continue;
+ 	}
+ 
+-	pred_string = make_pred_string_from_mrph(t_ptr, NULL, NULL, OptCaseFlag & OPT_CASE_USE_REP_CF, CF_PRED, FALSE);
++	pred_string = make_string(t_ptr, NULL, NULL, OptCaseFlag & OPT_CASE_USE_REP_CF, CF_PRED, FALSE);
+ 
+-	strcpy(pred_merged_rep, "用言代表表記:");
++	required_size = strlen(feature_name) + strlen(pred_string) + 2;
++	if (required_size > pred_merged_rep_size) {
++	    pred_merged_rep_size = required_size;
++	    pred_merged_rep = (char *)realloc_data(pred_merged_rep, pred_merged_rep_size,
++						"assign_pred_feature_to_bp");
++	}
++	strcpy(pred_merged_rep, feature_name);
++	strcat(pred_merged_rep, ":");
+ 	strcat(pred_merged_rep, pred_string);
+ 
+ 	/* 代表表記が曖昧な用言の場合 */
+@@ -2382,12 +2391,14 @@ int make_ipal_cframe(SENTENCE_DATA *sp, TAG_DATA *t_ptr, int start, int flag)
+ 			   m.Goi2, m.Yomi, m.Goi, 
+ 			   &m.Hinshi, &m.Bunrui, 
+ 			   &m.Katuyou_Kata, &m.Katuyou_Kei, m.Imi);
+-		    new_pred_string = make_pred_string_from_mrph(t_ptr, &m, NULL, OptCaseFlag & OPT_CASE_USE_REP_CF, CF_PRED, FALSE);
++		    new_pred_string = make_string(t_ptr, &m, NULL, OptCaseFlag & OPT_CASE_USE_REP_CF, CF_PRED, FALSE);
+ 		    /* 代表と異なるもの */
+ 		    if (strcmp(pred_string, new_pred_string)) {
+-			if (strlen(pred_merged_rep) + strlen(new_pred_string) + 2 > pred_merged_rep_size) {
++			required_size = strlen(pred_merged_rep) + strlen(new_pred_string) + 2;
++			if (required_size > pred_merged_rep_size) {
++			    pred_merged_rep_size = required_size;
+ 			    pred_merged_rep = (char *)realloc_data(pred_merged_rep, 
+-								   pred_merged_rep_size *= 2, "assign_pred_feature_to_bp");
++								   pred_merged_rep_size, "assign_pred_feature_to_bp");
+ 			}
+ 			strcat(pred_merged_rep, "?");
+ 			strcat(pred_merged_rep, new_pred_string);
+@@ -2405,6 +2416,15 @@ int make_ipal_cframe(SENTENCE_DATA *sp, TAG_DATA *t_ptr, int start, int flag)
+     free(pred_merged_rep);
+ }
+ 
++/*==================================================================*/
++	  void assign_pred_feature_to_bp(SENTENCE_DATA *sp)
++/*==================================================================*/
++{
++    assign_pred_feature_to_bp_subcontract(sp, "用言代表表記", make_pred_string_from_mrph);
++    /* 検索前の候補であり、選択frameや非CVの全検索keyを表さない。 */
++    assign_pred_feature_to_bp_subcontract(sp, "非CV用言見出候補", make_pred_string);
++}
++
+ /*==================================================================*/
+ 	 int make_default_cframe(TAG_DATA *t_ptr, int start)
+ /*==================================================================*/

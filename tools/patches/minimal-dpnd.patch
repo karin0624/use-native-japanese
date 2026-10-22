@@ -1,0 +1,89 @@
+diff --git a/configure.ac b/configure.ac
+index 4802dfe..dcaf819 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -76,6 +76,10 @@ fi
+ 
+ AC_ARG_ENABLE(debug, AC_HELP_STRING([--enable-debug], [build a debugging version (default=no)]))
+ 
++# 係り受け専用配布では実行時に使わない別配布資源を省略する。
++AC_ARG_ENABLE(minimal-dpnd, AC_HELP_STRING([--enable-minimal-dpnd], [係り受け専用の最小資源で構築する（既定=no）]))
++AM_CONDITIONAL(MINIMAL_DPND, test "x$enable_minimal_dpnd" = xyes)
++
+ AC_MSG_CHECKING([debug version])
+ if test "x$enable_debug" = xyes; then
+     dnl    AC_DEFINE(DEBUG)
+@@ -190,7 +194,9 @@ elif test -f "$packagesrcdir/dict/ebcf/cf.knpdict.xz"; then
+ elif test -f "$packagesrcdir/dict/ebcf/cf.dat" -a -f "$packagesrcdir/dict/ebcf/cf.db" ; then
+     cf_exist=yes
+ else
+-    AC_MSG_ERROR("$packagesrcdir/dict/ebcf/cf.knpdict{.xz}: not found")
++    if test "x$enable_minimal_dpnd" != xyes; then
++        AC_MSG_ERROR("$packagesrcdir/dict/ebcf/cf.knpdict{.xz}: not found")
++    fi
+     cf_exist=no
+ fi
+ AC_MSG_RESULT([$cf_exist])
+@@ -203,7 +209,9 @@ elif test -f "$packagesrcdir/dict/ebcf/noun.knpdict.xz"; then
+ elif test -f "$packagesrcdir/dict/ebcf/noun.dat" -a -f "$packagesrcdir/dict/ebcf/noun.db" ; then
+     cf_noun_exist=yes
+ else
+-    AC_MSG_ERROR("$packagesrcdir/dict/ebcf/noun.knpdict{.xz}: not found")
++    if test "x$enable_minimal_dpnd" != xyes; then
++        AC_MSG_ERROR("$packagesrcdir/dict/ebcf/noun.knpdict{.xz}: not found")
++    fi
+     cf_noun_exist=no
+ fi
+ AC_MSG_RESULT([$cf_noun_exist])
+@@ -216,7 +224,9 @@ elif test -f "$packagesrcdir/dict/ebcf/case.prob.xz"; then
+ elif test -f "$packagesrcdir/dict/ebcf/case.db"; then
+     prob_exist=yes
+ else
+-    AC_MSG_ERROR("$packagesrcdir/dict/ebcf/case.prob{.xz}: not found")
++    if test "x$enable_minimal_dpnd" != xyes; then
++        AC_MSG_ERROR("$packagesrcdir/dict/ebcf/case.prob{.xz}: not found")
++    fi
+     prob_exist=no
+ fi
+ AC_MSG_RESULT([$prob_exist])
+@@ -247,7 +257,9 @@ elif test -f "$packagesrcdir/dict/distsim/mi.dat.xz"; then
+ elif test -f "$packagesrcdir/dict/distsim/mi.db"; then
+     distsim_mi_exist=yes
+ else
+-    AC_MSG_ERROR("$packagesrcdir/dict/distsim/mi.dat{.xz}: not found")
++    if test "x$enable_minimal_dpnd" != xyes; then
++        AC_MSG_ERROR("$packagesrcdir/dict/distsim/mi.dat{.xz}: not found")
++    fi
+     distsim_mi_exist=no
+ fi
+ AC_MSG_RESULT([$distsim_mi_exist])
+@@ -256,7 +268,9 @@ AC_MSG_CHECKING([NE CRF model])
+ if test -f "$packagesrcdir/dict/crf.model"; then
+     ne_crf_model_exist=yes
+ else
+-    AC_MSG_ERROR("$packagesrcdir/dict/crf.model: not found")
++    if test "x$enable_minimal_dpnd" != xyes; then
++        AC_MSG_ERROR("$packagesrcdir/dict/crf.model: not found")
++    fi
+     ne_crf_model_exist=no
+ fi
+ AC_MSG_RESULT([$ne_crf_model_exist])
+diff --git a/dict/Makefile.am b/dict/Makefile.am
+index 0cf9b29..6072a50 100644
+--- a/dict/Makefile.am
++++ b/dict/Makefile.am
+@@ -1,4 +1,13 @@
+-SUBDIRS = src scode ebcf gcf auto synonym distsim
++SUBDIRS = $(minimal_dict_subdirs)
++
++if MINIMAL_DPND
++# 初期化が全モードで読む実在の小資源を配置する。
++minimal_dict_subdirs = src scode gcf auto
++sotodir = $(pkgdatadir)/dict/ebcf
++soto_DATA = ebcf/case_soto.txt
++else
++minimal_dict_subdirs = src scode ebcf gcf auto synonym distsim
++endif
+ 
+ dicdir = $(pkgdatadir)/dict
+ 

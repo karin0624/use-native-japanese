@@ -1,115 +1,66 @@
-# データ準備と開発環境
+# 採用済みnative解析器のセットアップ
 
-現在は[固定二入力の限定照合](lexical-usage-validation.md)だけを進めています。本書は既存部品の再現手順であり、掲載した全処理の実行や、文脈モデル等の採用を指示するものではありません。`src/native_japanese/`には既存解析の保存、構造の列挙、用例索引、位置付き文脈表現がありますが、実利用できる検出器・訂正器は未完成です。`scripts/`は取得・形式変換・固定分割・共通評価に使います。Python 3.12で検証しています。参照コーパスの取得と解析計測はPOSIXの`resource`を使用します。
+Juman++ 2.0.0-rc4から、固定KNPの標準確率CV経路へ形態素列を渡す構成を準備します。KNPの既存非CV見出しを追加feature `非CV用言見出候補`（H）として公開する二patchを使います。Hはlookup前の候補列で、Nや全最終lookup keyと同一とは扱いません。ここでは検出器・指摘判断・本文解析を実装しません。
 
-リポジトリ直下で実行します。既存環境と分けるため、以下は`.venv-check`を使います。
+## 現在使える準備コマンド
 
-```sh
-UV_PROJECT_ENVIRONMENT=.venv-check uv sync --locked --extra data
-.venv-check/bin/python -m pytest -q
-.venv-check/bin/ruff check src scripts tests
-.venv-check/bin/ruff format --check src scripts tests
-```
-
-通常の依存はGiNZAとその固定モデル・辞書、igraph、marisa-trie、NumPyです。開発グループはpytestとRuff、`data` extraはデータ準備用のSciPy、scikit-learn、PyArrow等です。直接依存と間接依存は`pyproject.toml`と`uv.lock`で固定しています。取得コーパス、原本、生成索引、重みは`data/`や`artifacts/`等のGit対象外へ保存してください。
-
-文脈表現も検証する場合は`uv sync --locked --extra data --extra detector`を同じ隔離環境に実行します。`detector` extraにはPyTorch、Transformers、日本語tokenizer、位置整列の依存が入り、LinuxとWindowsではCPU版PyTorchを選びます。encoderのテストは小型モデルをその場で作り、公開重みを取得しません。実行時もモデルの自動downloadは行わず、呼出側が準備したローカル重みだけを読みます。依存がない場合はencoderのテストをskipするため、基本環境だけのテスト成功を文脈表現の検証済みとは扱わないでください。
-
-`GinzaParser`は公開token・head・dep・文境界をそのまま保存し、`enumerate_fragments`が汎用graph処理で2〜4 nodeの連結構造を列挙します。`UsageIndexBuilder`は固定した入力件数と出典を受け取り、全入力の処理後だけ完成索引を公開します。解析や索引の成功自体は、日本語の正しさの判定ではありません。
-
-## 教師コーパスの固定実験を再生する
-
-[Zenodoの原配布](https://doi.org/10.5281/zenodo.4276130)から`teacher_data.tsv`だけを取得します。Alex Kimn、Yiqun Hu、Takako AikawaによるCC BY 4.0の資料です。日本語教師が学習者の典型誤りを模して作った文で、実学習者の原文ではありません。配布説明の件数とは区別し、この固定原本は6340対です。原本SHA256は`22d154be9f5eebecf0fe3bbaba31f541037a9b1bfe91a6428e62c5768f37dd4e`です。
+`tools/setup-native.py`は準備・build・設定・verifyを行う独立scriptです。configure／verify／既存資源のoffline再利用にはPython 3.12の標準libraryだけを使います。ネットワーク取得時だけ既存pin `fsspec==2026.7.0`・`aiohttp==3.14.5` が必要です。
 
 ```sh
-mkdir -p data/raw
-curl --fail --location \
-  https://zenodo.org/api/records/4276130/files/teacher_data.tsv/content \
-  --output data/raw/teacher_data.tsv
-.venv-check/bin/python scripts/prepare_teacher.py \
-  --source data/raw/teacher_data.tsv --output data/teacher-prepared
-.venv-check/bin/python scripts/evaluate_detection.py prepare-corrected \
-  --teacher-dev data/teacher-prepared/split-20261021/dev.jsonl \
-  --output data/teacher-prepared/teacher-corrected-dev.jsonl
+# Python 3.12以上。確認済みのgcc/g++でpure-cdbの拡張をbuildします。
+CC=gcc CXX=g++ uv sync --locked --extra setup
+. .venv/bin/activate
+# repo外の共有cacheと、新規の作業先／prefixを指定します。
+CACHE=/path/to/shared/native-assets
+PREFIX=/path/to/new/native-runtime
+WORK=/path/to/new/native-build
+python3 tools/setup-native.py prepare --assets-dir "$CACHE" --include-vector
+python3 tools/setup-native.py check-python --vector --assets-dir "$CACHE"
+python3 tools/setup-native.py build --assets-dir "$CACHE" --prefix "$PREFIX" --work-dir "$WORK"
+python3 tools/setup-native.py configure --assets-dir "$CACHE" --prefix "$PREFIX"
+python3 tools/setup-native.py verify --config "$PREFIX/etc/native-runtime.json"
 ```
 
-`prepare_teacher.py`は2026-10-21の固定実験を再生する入口です。別の原本を分割する道具ではありません。原文の`<>`と訂正文の`()`が一組で、前後の文字列が一致する等の既存検査を保ち、通過した6297対を使います。日本語の解析・修復は行いません。
+prepareの資源ID・相対path・サイズ・期待SHA-256・公式URLは [native-assets.json](../tools/native-assets.json) が正本です。基本例は公式配布から必要資源を取得し、公式KNP sourceの固定commitからbuildします。`--include-vector`は許可したcompactモデルも準備します。KNP ZIPは既存のfsspec readahead＋zipfile経路を再利用し、全ZIPを保存せず必要memberだけ読みます。固定配布identity、条件付きRange／206、member size／CRC／EOFに加え、**既知SHAへ一致してから**`.part`をrenameします。資源準備は15分、展開残量＋512MiBの空きを要求します。既存fileのhash不一致を自動更新や別モデルで置き換えません。
 
-元実験はPython 3.12.14、NumPy 2.3.5、SciPy 1.17.0、scikit-learn 1.8.0を使用しました。誤文・訂正文を区別せず全文完全一致を連結し、文字TF-IDF 2〜4gram・cosine 0.85以上の近傍を追加して、SciPyの無向連結成分3532groupを作成しました。`GroupShuffleSplit(test_size=0.5, random_state=20261021)`でpoolを分け、同seedのNumPy乱数器でdev/testを各300対選びました。その541group全体を保留し、残る昇順group IDsを`random.Random(20261021)`でshuffleした先頭1000groupから、続く同じ乱数器で各一対を選んだものが固定監査対象です。
+## 既存資源を再利用する場合
 
-今回の再生では近傍探索や乱数選択をやり直さず、本文を含まない`scripts/teacher-selection-20261021.json`のgroup所属・選択原行番号を使います。原手法、原処理3本のSHA256、版本、seed、出典、ライセンス、期待出力hashもそのmetadataに保持しています。原本hash・検査結果hash・7出力のhashが全て一致した場合だけ新規ディレクトリへ書き、再生manifestへ記録します。LLM監査ラベルは含めず、固定1000groupの保留を再現します。
+既存fileはcacheの対応pathに置くか、prepareへ`--reuse 'ID=/path/to/existing/file'`を繰り返します。固定size/hashを照合した後にsymlinkで参照登録し、大容量の実体をコピーしません。例えば`--reuse 'cf.dat=/path/to/cf.dat'`を指定できます。全件を準備済みなら`--offline`で取得を禁止でき、不足資源は列挙して停止します。
 
-校正用devは元dev300対の訂正文を全文一致でまとめた288文です。元の誤りspanは流用しません。`prepare-corrected`は[共通評価器](evaluation.md)の既存機能です。後述の比較分割へこの`data/teacher-prepared`を渡すと、補助train訂正文まで原本から再現できます。
+buildの`--knp-source /path/to/fixed/knp`は既存checkout、`--bootstrap-from /path/to/generated/knp`は既存autotools生成script、`--grammar-dir /path/to/existing/share/juman/dic`は元install全9点を再利用する任意の指定です。既存資源を持たない初回には不要です。今回の実build確認はこの再利用経路で行っています。remote source取得・autogen・資源のnetwork取得・grammar生成まで一式を新規実行した証拠ではありません。差分は後述します。
 
-## 寺村誤用例集
+## clean native build
 
-[公式原本](https://doi.org/10.15084/00003533)のTXTを利用者が取得し、原本のファイルを指定します。SHA256 `b63dc40c63a6559e389f6f1af5e59ed18607a1513e9112dfa60c74cba0c53181`と異なる入力は拒否します。CC BY-SA 4.0の出典・ライセンスと変換内容は出力manifestに記録します。
+既存Debian bookworm builderの依存は `build-essential autoconf automake libtool cmake zlib1g-dev ca-certificates git python3` です。Dockerはbuild手段でありruntime必須ではありません。モデル・大容量DBは準備した外部cacheを参照します。cache・grammarの参照元はruntimeの利用中も保持してください。既存prefix／workは上書きせず、新規directoryを要求します。KNPのprefixに空白を含むpathは現在未対応です。
 
-```sh
-.venv-check/bin/python scripts/convert_teramura.py \
-  --source data/raw/teramura.goyoureishu.txt --output artifacts/teramura-converted
-.venv-check/bin/python scripts/prepare_comparison.py \
-  --source-dir artifacts/teramura-converted \
-  --teacher-dir data/teacher-prepared --output artifacts/comparison
-```
+固定sourceは `bc4cef188669f88cdeb590fe7afb1021ce2ae481`。`--knp-source`で既存checkoutを指定すると別cloneへ展開し、原本を変更しません。未指定時はmetadataの公式repoを使います。`tools/patches/`の `minimal-dpnd.patch` と `non-cv-predicate-head.patch` の固定hashを確認して適用します。前者は別配布資源をbuild時に要求しない既存調整で、公式optionではありません。日本語規則・格採点を変更するものではありません。
 
-出力先は存在しないディレクトリを指定します。原記号の除去と文字offsetへの変換だけを行い、日本語の正規化・訂正は行いません。不明記法は未解決として保持し、訂正文を推測しません。
+buildは既存と同じ `--enable-minimal-dpnd --with-included-juman`・`CFLAGS=-O2`・`CXXFLAGS=-O2 -std=gnu++11` とJuman++のRelease／tests off／protobuf offを使います。必要なlibrary、binary、rule、小DBをclean buildし、原binary／objectは再利用しません。`--grammar-dir`は同梱JUMANの元のmake install対象9点（grammar/kankei/katuyou/connectとjumandic.mat/tab/dat/da/bin）を固定hashへ照合し、全件を参照配置します。これを省略すると本来の`make -C juman/dic install`で9点を生成します。今回の確認は既存の文法directoryを保持して大容量語彙辞書の複製・再生成を避けた経路です。Juman++モデルと外部DBもsymlink、rule・生成小DB・binaryは新prefixに配置します。
 
-比較分割はseed `20261021`、候補group・学習者IDの連結成分で固定します。全既知入力を連結してから未解決等を除き、groupの20%をtest、残りの25%をdevにします。group数の割合であり、文章数が必ず60/20/20になる意味ではありません（[groupサイズの均衡化要望](https://github.com/scikit-learn/scikit-learn/issues/9297)も確認）。同一offsetの原ラベルを統合し、gapは幅0のまま保持します。出力manifestに依存版本・入力hash・出力hashと制約を残します。
+同じ既存builderでautotools生成済みsourceがある場合は`--bootstrap-from /path/to/generated/knp`を追加できます。再利用するのはconfigure／Makefile.in／m4等の生成scriptだけで、採用した各fileのhashを`bootstrap-inputs.json`へ保存します。C/C++ sourceやobject／libraryはコピーしません。
 
-補助訂正文の入力は、上の教師コーパス再生で作る次のファイル群です。
+開始前に2GiB＋512MiBの空きを確認し、buildのnative工程を既定45分・増分2GiBに制限します。時間は`--timeout-seconds`で正の秒数を指定できます。今回確認した再利用経路のnative工程は同じ新規workの続行を含め約29分30秒でした。停止時もwork内の`build.log`と`build-status.json`を保持し、設定を変えた無制限再試行はしません。完成時だけprefixへ`build.json`を保存します。Docker利用時はこのscriptを既存builder内で実行し、共有cacheと元sourceはread-onlyでmountします。proxy／CAの正規設定を維持し、資格情報や環境変数全体をログへ出しません。
 
-- `teacher-inspected.jsonl`
-- `split-20261021/assignment.jsonl`、`dev.jsonl`、`test.jsonl`
-- `unused-group-audit-20261021/audit-part-1.jsonl`、`audit-part-2.jsonl`
+## 資源と起動前検証
 
-既存dev/testと固定1000監査groupを補助trainから保留し、寺村dev/testと全文一致する訂正文も除外します。文字TF-IDFによる近似監査は記録のみで、近似文の混入がない保証ではありません。補助訂正文は完全な正用goldではなく、寺村の語彙章ラベルも連語専用・AI生成文専用のgoldではありません。
+KNPのruntime辞書は11fileです。auto 1、gcf 1、scode 2、ebcf 7（cf.db/cf.dat/mrph2id.db/case_soto.txt/cfp.db/cfcase.db/case.db）。公式ZIPのruntime用8memberとsourceから生成する小DB3件を区別します。空のwikipedia.dat.skipは既存build入力としてmetadataに保持しています。
 
-## 2019年の参照passage
+これにKNPのJUMAN文法／活用、必須17名のrule（sourceの生成出力19名を配置）、Juman++ model／config、native binaryと共有libraryが必要です。Juman++ modelとKNP用の同梱JUMAN文法は別資源です。configureは固定外部資源と生成DBのhash、必須file・rule・設定pathを検査し、各fileのhashと実path／identity、版本、build来歴を`etc/native-runtime.json`へ保存します。
 
-```sh
-.venv-check/bin/python scripts/reference_corpus.py acquire --output artifacts/reference-2019
-.venv-check/bin/python scripts/reference_corpus.py verify --output artifacts/reference-2019
-```
+固定optionsは`-r <生成knprc> -case -tab -para-scode none -analyze-deverbative-noun`です。非確率・非CV・case2・anaphoraへ変更しません。通常verifyはprocess開始前の軽いidentity検査で、変更があれば停止します。同じprefixでの明示的な完全検査には`verify --full`を使い、全hashへ一致した後だけidentity記録を更新します。数GBのhashを各文で再計算しません。生成設定とnative既定pathはprefixに対応するため、prefixの単純移設は未対応です。別pathへ導入する場合は新prefixへbuildしてください。
 
-既に固定した`scripts/reference-2019-manifest.json`を使います。revision `4b58cd23ae34af0f77c424b98807901cf472c377`、6 shardのサイズ・SHA256、抽出seed、予算、事前閲覧の記録を含む原manifestは、既存成果とのhash照合を維持するため文章も変更していません。任意の既存manifestを再現する場合だけ`acquire --manifest PATH`を指定します。取得時に同じbytesを出力先へコピーするため、検証時には外部manifestを必要としません。
+## Python依存
 
-MIRACL日本語コーパスの2019-02-01 Wikipedia由来passageを、記事IDだけのSHA256で100 bucketへ分け、0〜4を抽出します。bucket 0は入れ子の初期集合です。タイトル・本文・評価例は選択に使いません。`docid/title/text`をそのまま保存し、URL、snapshot、revision、ライセンスを付けます。記事URLは出典への参照であり、元記事の個別revisionは提供されていません。
+既存の`pyproject.toml`＋`uv.lock`による一つのPython環境へ採用依存を統合しました。core3は`rhoknp==1.8.2,pure-cdb==4.0.0,cohesion-tools==0.7.7`、現行vector直接5pinは`compress-fasttext==0.1.5,gensim==4.4.0,numpy==2.5.4,scipy==1.18.1,scikit-learn==1.9.1`です。取得依存はsetup extra、devは既存dev groupです。compactの旧11pin lockを出典として残り6間接pinもconstraintへ固定し、旧prototype依存は持ち込みません。
 
-約1.67 GBの固定Parquetを一つずつ取得し、サイズ・hash・行数を検証します。転送上限2 GiB、出力合計512 MiB、監視RSS目標2 GiBです。RSSはbatchごとの監視でありOSの強制上限ではありません。再試行・追記・resumeは行いません。既存出力ディレクトリを拒否し、失敗時は部分出力と`failed_partial`の`result.json`を残します。`result.json`の`complete`と検証成功を確認してから利用してください。
+上記`uv sync --locked --extra setup`はdevを含む一環境として導入・import・固定モデルloadまで確認済みです。pure-cdbの拡張buildではPython既定CCのclangがhostにないため既存gcc/g++を明示しました。別venvでの以前の検証や、先行scratch環境での26packages解決は別の証拠です。製品のvenv分割や独立vectorプロセスを必須にしません。
 
-Wikipedia本文のCC BY-SA 3.0と出典を保持します。配布cardのApache 2.0を本文の再ライセンスとは解釈しません。画像・表・markupを取り除いた抽出済み資料で、誤りのない日本語とは限りません。元の抽出プログラムが非公開という[保守者の回答](https://github.com/project-miracl/miracl/issues/17#issuecomment-2014284662)もあります。未観測の表現を誤用とはみなしません。
+準備済みの環境に対して、`python tools/setup-native.py check-python`でcoreのpinとimport、`--vector --assets-dir "$CACHE"`でvectorも確認できます。vector loadは現行adapterと同様、許可済み21,944,687 bytes／SHAを同一bytesで照合し、private snapshotだけを公開loaderへ渡します。任意pickleや隣接sidecar、自動別モデル取得はありません。本体統合時には現行adapterと検証loaderの二重保守を避けるよう共通化する対象です。
 
-## 参照passageの解析正本を保存する
+## 出自と確認範囲
 
-取得済み原本を、固定版`GinzaParser`で一度だけ解析してSQLiteへ保存します。初期bucket 0全体は69,195文書、SHA256は`2a64cb7535ba62281cff602f94627370faaf374976bbabdab70c4ed2a37a3897`です。
+Juman++公式モデル込みrelease、KNP公式辞書ZIP、compactのZenodo record `10.5281/zenodo.4905385` を固定します。SHAは既存取得値を固定期待値として再利用し、公式公開SHAとの照合とは称しません。KNP／同梱JUMANのBSDと同梱CRF++/cdbのnoticeをprefixへ保持します。Juman++コードのApache 2.0表記と第三者の条件は元sourceも参照してください。今回の公式releaseにはrootの独立LICENSE fileがなく、全第三者noticeのruntime再配布用収集は完了扱いにしていません。KNP別配布DB、BGH、Juman++配布モデルへの個別条件の適用範囲は未確認です。compactはLiebl Bernhard, v1.0, 2021-06-07の圧縮版で、説明本文CC BY-SA 3.0と機械metadata CC BY 4.0の不一致をmetadataへ残します。ローカルsetupの実装成功を再配布条件の確定とは扱いません。
 
-```sh
-.venv-check/bin/python scripts/parse_reference.py \
-  --source artifacts/reference-2019/initial-bucket-00.jsonl \
-  --output artifacts/parsed-reference.sqlite \
-  --source-sha256 2a64cb7535ba62281cff602f94627370faaf374976bbabdab70c4ed2a37a3897 \
-  --expected-documents 69195
-```
+今回未試行の初回経路は、公式URLからの取得（同じ既知SHAへ照合）、remote cloneとautogen（固定commitと同じ二patch）、文法9点の生成（元の`make -C juman/dic install`）です。独自の辞書削減や別の日本語規則は追加していません。確認済み経路では、同じ固定sourceから新しいobject/library/native binary・rule・小DBを生成し、外部辞書・モデル・元install文法9点とautotools生成scriptを再利用しました。この新prefixでconfigure／verify、版本・空stdin・lddは全て成功しました。
 
-同じ引数で再実行すると、入力全体のSHA256と解析metadata・予定件数を照合し、保存済み文書の原ID・記事ID・原文を確認して残りだけを解析します。入力は最初に一度hashし、同じファイル記述子を巻き戻して読み、処理中のサイズ・時刻・inode変更を拒否します。全文、全tokenのoffset・lemma・UPOS・tag・morph・head・dep、文境界を圧縮保存し、日本語の正規化・修復をしません。文書・token数・lemma/UPOS種類数と保存境界を文書単位の同じtransactionへ記録します。中断時は未完了のままで、完成した正本だけを`ParsedCorpus`で開けます。
-
-限定計測は別の出力へ`--limit 1000 --expected-documents 1000`を指定します。原本全体のhashは保持し、先頭1,000件の限定snapshotと明記します。全量の完成とは扱わず、後から同じDBを全量へ切り替えることも拒否します。
-
-```python
-from native_japanese.corpus import ParsedCorpus
-
-corpus = ParsedCorpus("artifacts/parsed-reference.sqlite")
-for article_id, document in corpus.documents(order="input"):
-    pass  # 同じ原文・公開注釈を索引や文脈計算へ渡す
-for article_id, document in corpus.documents(order="seed", seed=20261021):
-    pass  # 2回目も再解析せず逐次読み出す
-```
-
-順序は入力順`input`、記事ID・source IDの辞書順`article`、`SHA256(UTF-8(str(seed) + ':' + source_id))`順`seed`を選べます。hash同順位は入力順です。全文書・全語彙をRAMへ保持せずSQLiteで処理します。metadataの`parse_seconds`は再開時の入力照合・モデル読込を除く、解析と文書保存の累計wall timeです。CLIはbatchごとにcommit済みの進捗を標準エラーへJSONで出力します。`content_sha256`は成功後、保存済み文書を入力順で再読込し、`[article_id, Documentのdataclass辞書]`をUTF-8・`ensure_ascii=False`・`sort_keys=True`・空白なしJSONと改行へ変換した列のSHA256です。中断したhash状態を復元したとは扱いません。
-
-## 依存の選択根拠
-
-2026-10-21にPyPIの版本情報、公式資料の利用例、各リポジトリの直近のissue/PR対応を確認しました。連結成分は[SciPy](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.connected_components.html)、分割は[GroupShuffleSplit](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GroupShuffleSplit.html)、Parquetの逐次読取は[PyArrow iter_batches](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html)へ委ねています。独自のgroup分割やParquet readerは実装しません。sklearnのgroup分割は各回のtest集合間の排他性を一般には保証しませんが、ここでは一度testを取り除いた残りだけを再分割します。
-
-保守状況の確認例は[SciPyの不具合修正](https://github.com/scipy/scipy/pull/26468)、[scikit-learnのmetadata修正](https://github.com/scikit-learn/scikit-learn/pull/35191)、[Arrowの検証修正](https://github.com/apache/arrow/pull/54911)です。これらは直近の保守活動の証拠であり、このデータ処理の品質保証ではありません。pytestとRuffは[公式のテスト導入例](https://docs.pytest.org/en/stable/getting-started.html)と[lint/format利用例](https://docs.astral.sh/ruff/tutorial/)に従い、空のruntime packageや配布用build設定はまだ設けません。
+fixtureは`python3 -m unittest discover -s tests -p test_native_setup.py -v`で実行します。固定hash不一致の完成公開拒否、既存資源を上書きしない参照再利用、任意pickleのload前拒否、検証後のruntime改変拒否、compiler一時fileの消滅でbuild監視を止めないことを確認します。実build・版本・空stdinの結果は作業報告へ保存し、本文解析や検出性能の証拠にはしません。
