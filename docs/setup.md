@@ -80,6 +80,34 @@ MIRACL日本語コーパスの2019-02-01 Wikipedia由来passageを、記事IDだ
 
 Wikipedia本文のCC BY-SA 3.0と出典を保持します。配布cardのApache 2.0を本文の再ライセンスとは解釈しません。画像・表・markupを取り除いた抽出済み資料で、誤りのない日本語とは限りません。元の抽出プログラムが非公開という[保守者の回答](https://github.com/project-miracl/miracl/issues/17#issuecomment-2014284662)もあります。未観測の表現を誤用とはみなしません。
 
+## 参照passageの解析正本を保存する
+
+取得済み原本を、固定版`GinzaParser`で一度だけ解析してSQLiteへ保存します。初期bucket 0全体は69,195文書、SHA256は`2a64cb7535ba62281cff602f94627370faaf374976bbabdab70c4ed2a37a3897`です。
+
+```sh
+.venv-check/bin/python scripts/parse_reference.py \
+  --source artifacts/reference-2019/initial-bucket-00.jsonl \
+  --output artifacts/parsed-reference.sqlite \
+  --source-sha256 2a64cb7535ba62281cff602f94627370faaf374976bbabdab70c4ed2a37a3897 \
+  --expected-documents 69195
+```
+
+同じ引数で再実行すると、入力全体のSHA256と解析metadata・予定件数を照合し、保存済み文書の原ID・記事ID・原文を確認して残りだけを解析します。入力は最初に一度hashし、同じファイル記述子を巻き戻して読み、処理中のサイズ・時刻・inode変更を拒否します。全文、全tokenのoffset・lemma・UPOS・tag・morph・head・dep、文境界を圧縮保存し、日本語の正規化・修復をしません。文書・token数・lemma/UPOS種類数と保存境界を文書単位の同じtransactionへ記録します。中断時は未完了のままで、完成した正本だけを`ParsedCorpus`で開けます。
+
+限定計測は別の出力へ`--limit 1000 --expected-documents 1000`を指定します。原本全体のhashは保持し、先頭1,000件の限定snapshotと明記します。全量の完成とは扱わず、後から同じDBを全量へ切り替えることも拒否します。
+
+```python
+from native_japanese.corpus import ParsedCorpus
+
+corpus = ParsedCorpus("artifacts/parsed-reference.sqlite")
+for article_id, document in corpus.documents(order="input"):
+    pass  # 同じ原文・公開注釈を索引や文脈計算へ渡す
+for article_id, document in corpus.documents(order="seed", seed=20261021):
+    pass  # 2回目も再解析せず逐次読み出す
+```
+
+順序は入力順`input`、記事ID・source IDの辞書順`article`、`SHA256(UTF-8(str(seed) + ':' + source_id))`順`seed`を選べます。hash同順位は入力順です。全文書・全語彙をRAMへ保持せずSQLiteで処理します。metadataの`parse_seconds`は再開時の入力照合・モデル読込を除く、解析と文書保存の累計wall timeです。CLIはbatchごとにcommit済みの進捗を標準エラーへJSONで出力します。`content_sha256`は成功後、保存済み文書を入力順で再読込し、`[article_id, Documentのdataclass辞書]`をUTF-8・`ensure_ascii=False`・`sort_keys=True`・空白なしJSONと改行へ変換した列のSHA256です。中断したhash状態を復元したとは扱いません。
+
 ## 依存の選択根拠
 
 2026-10-21にPyPIの版本情報、公式資料の利用例、各リポジトリの直近のissue/PR対応を確認しました。連結成分は[SciPy](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csgraph.connected_components.html)、分割は[GroupShuffleSplit](https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GroupShuffleSplit.html)、Parquetの逐次読取は[PyArrow iter_batches](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html)へ委ねています。独自のgroup分割やParquet readerは実装しません。sklearnのgroup分割は各回のtest集合間の排他性を一般には保証しませんが、ここでは一度testを取り除いた残りだけを再分割します。
