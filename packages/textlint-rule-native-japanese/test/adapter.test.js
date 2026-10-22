@@ -63,6 +63,36 @@ test("inline codeを連結し、code内部と周囲を跨ぐ指摘を元位置�
     assert.deepEqual((await log())[0].texts, ["🍣 PodとPodを削除する", "雲を食べる。"]);
 });
 
+test("解析情報と比較不能の保留を誤用指摘と区別し、絵文字・code・強調の原文端点へ戻す", async t => {
+    const { linter } = await setup(t);
+    const text = "🍣 `解析保留`。`参照対象`を十分離して**比較する**。雲を食べる。";
+    const { messages } = await linter.lintText(text, "文書.md");
+    const expected = [
+        ["解析保留", "判定保留（解析情報）: 公開された格・項の関係がありません。"],
+        ["参照対象", "判定保留（比較不能）: 群の重心が厳密にゼロです"],
+        ["比較する", "判定保留（比較不能）: 群の重心が厳密にゼロです"]
+    ];
+    assert.equal(messages.length, 4);
+    for (const [word, message] of expected) {
+        const start = text.indexOf(word);
+        const actual = messages.find(item => item.index === start);
+        assert.deepEqual(actual.range, [start, start + word.length]);
+        assert.equal(actual.message, message);
+    }
+    assert.match(messages.find(item => item.index === text.indexOf("雲")).message, /^人工fixtureの指摘/);
+    assert.equal(messages.find(item => item.index === text.indexOf("解析保留")).column, 5);
+});
+
+test("保留応答の種類・理由・配列とUTF-16範囲を検証し、推測した位置を使わない", async t => {
+    const { linter } = await setup(t);
+    for (const variant of ["配列", "種類", "理由", "空範囲", "範囲型", "サロゲート", "範囲外"]) {
+        await assert.rejects(linter.lintText(`🍣保留不正${variant}`, "文書.md"),
+            /unavailable|UTF-16範囲/);
+    }
+    // unavailableを省略する従来workerも引き続き使える。
+    assert.equal((await linter.lintText("雲を食べる", "文書.md")).messages.length, 1);
+});
+
 test("codeのpadding・複数backtickと引用・リスト継続行の位置を保持する", async t => {
     const { linter, log } = await setup(t);
     const text = ["`  Pod  `を削除する。", "`` `Pod` ``を削除する。", "> `a\r\n> b`を削除する。",

@@ -92,8 +92,7 @@ export default function rule(context, options = {}) {
                 if (results[i]?.offsetEncoding !== "utf-16" || !Array.isArray(results[i]?.diagnostics)) {
                     throw new Error("native-japanese: 応答にはoffsetEncoding: utf-16とdiagnosticsが必要です。");
                 }
-                for (const diagnostic of results[i].diagnostics) {
-                    const range = diagnostic?.range;
+                const reportRange = (range, message) => {
                     if (!Array.isArray(range) || range.length !== 2 ||
                         !range.every(Number.isSafeInteger) || range[0] < 0 || range[0] >= range[1] ||
                         range[1] > segment.text.length || range.some(index => splitsSurrogate(segment.text, index))) {
@@ -105,7 +104,10 @@ export default function rule(context, options = {}) {
                         start < 0 || end > segment.node.raw.length) {
                         throw new Error("native-japanese: 指摘の原文範囲への写像が不正です。");
                     }
-                    if (typeof diagnostic.message !== "string" || !diagnostic.message.trim()) {
+                    report(segment.node, new RuleError(message, { padding: locator.range([start, end]) }));
+                };
+                for (const diagnostic of results[i].diagnostics) {
+                    if (typeof diagnostic?.message !== "string" || !diagnostic.message.trim()) {
                         throw new Error("native-japanese: 指摘のmessageが不正です。");
                     }
                     if (diagnostic.suggestions !== undefined && (!Array.isArray(diagnostic.suggestions) ||
@@ -115,7 +117,20 @@ export default function rule(context, options = {}) {
                     // 訂正候補は案内だけにする。装飾を跨ぐ原文範囲を自動置換しない。
                     const suggestions = diagnostic.suggestions?.length
                         ? ` 訂正候補: ${diagnostic.suggestions.map(value => JSON.stringify(value)).join("、")}` : "";
-                    report(segment.node, new RuleError(diagnostic.message + suggestions, { padding: locator.range([start, end]) }));
+                    reportRange(diagnostic.range, diagnostic.message + suggestions);
+                }
+                const unavailable = results[i].unavailable;
+                if (unavailable !== undefined && !Array.isArray(unavailable)) {
+                    throw new Error("native-japanese: unavailableには配列が必要です。");
+                }
+                for (const item of unavailable ?? []) {
+                    if (!["analysis", "reference"].includes(item?.kind) ||
+                        typeof item.reason !== "string" || !item.reason.trim() ||
+                        !Array.isArray(item.ranges) || !item.ranges.length) {
+                        throw new Error("native-japanese: unavailableのkind・reason・rangesが不正です。");
+                    }
+                    const label = item.kind === "analysis" ? "判定保留（解析情報）" : "判定保留（比較不能）";
+                    for (const range of item.ranges) reportRange(range, `${label}: ${item.reason}`);
                 }
             }
         }
