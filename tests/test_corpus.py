@@ -216,3 +216,15 @@ def test_initialization_failure_rolls_back_schema_and_can_restart(source, tmp_pa
     parser = SavedParser()
     assert parse_corpus(source, output, parser=parser).document_count == 3
     assert parser.seen == ["first", "empty", "last"]
+
+
+def test_article_order_sorts_source_ids_within_article(source, tmp_path):
+    rows = [json.loads(line) for line in source.read_text().splitlines()]
+    rows[0]["docid"], rows[2]["docid"] = "z-first", "a-last"
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    corpus = parse_corpus(source, tmp_path / "parsed.sqlite", parser=SavedParser())
+    assert [doc.source_id for _, doc in corpus.documents(order="article")] == [
+        "empty",
+        "a-last",
+        "z-first",
+    ]
