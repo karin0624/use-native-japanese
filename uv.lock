@@ -2023,6 +2023,7 @@ dependencies = [
     { name = "ja-ginza" },
     { name = "marisa-trie" },
     { name = "numpy" },
+    { name = "pyarrow" },
     { name = "spacy" },
     { name = "sudachidict-core" },
     { name = "sudachipy" },
@@ -2031,7 +2032,6 @@ dependencies = [
 [package.optional-dependencies]
 data = [
     { name = "numpy" },
-    { name = "pyarrow" },
     { name = "scikit-learn" },
     { name = "scipy" },
 ]
@@ -2067,7 +2067,7 @@ requires-dist = [
     { name = "marisa-trie", specifier = "==1.4.1" },
     { name = "numpy", specifier = "==2.3.5" },
     { name = "numpy", marker = "extra == 'data'", specifier = "==2.3.5" },
-    { name = "pyarrow", marker = "extra == 'data'", specifier = "==26.0.0" },
+    { name = "pyarrow", specifier = "==26.0.0" },
     { name = "scikit-learn", marker = "extra == 'data'", specifier = "==1.8.0" },
     { name = "scikit-learn", marker = "extra == 'vectors'", specifier = "==1.8.0" },
     { name = "scipy", marker = "extra == 'data'", specifier = "==1.17.0" },

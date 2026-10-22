@@ -12,6 +12,7 @@ dependencies = [
     "SudachiDict-core==20260723",
     "marisa-trie==1.4.1",
     "numpy==2.3.5",
+    "pyarrow==26.0.0",
 ]
 
 [build-system]
@@ -39,7 +40,6 @@ data = [
     "numpy==2.3.5",
     "scipy==1.17.0",
     "scikit-learn==1.8.0",
-    "pyarrow==26.0.0",
 ]
 
 [dependency-groups]

@@ -112,9 +112,6 @@ def test_joint_is_same_token_occurrence_and_citation_roundtrip(tmp_path):
         assert pair.node_ids == (0, 2)
         assert pair.spans[0][1] < pair.spans[1][0]
         assert pair.surfaces == ("x", "v")
-        assert isinstance(
-            index.values[next(i for i, v in enumerate(index.values) if "f" in v)]["f"], np.memmap
-        )
 
 
 def test_marginals_article_dedup_order_and_original_separation(tmp_path):
@@ -277,3 +274,98 @@ def test_relative_builder_path_stays_at_initial_directory(tmp_path, monkeypatch)
         assert empty.manifest["documents"] == 0
     with open_index(second / "index") as existing:
         assert existing.lookup(SHAPE, ("x", "a", "v"), target_slot=0).c == 1
+
+
+def test_same_article_different_f_and_first_citation_keep_the_same_occurrence(tmp_path):
+    # Qは二つのFを含むが、同じ記事の支持は一度だけ数える。
+    first = document("first", (("z", "a", "v"), ("x", "a", "v")))
+    with builder(tmp_path, 2) as build:
+        build.add_document(first, article_id="A")
+        build.add_document(document("second", (("x", "a", "v"),)), article_id="A")
+        build.finish(input_complete=True)
+    with open_index(tmp_path) as index:
+        counts = index.lookup(SHAPE, ("x", "a", "v"), target_slot=0)
+        assert (counts.c, counts.r, counts.c_articles, counts.r_articles) == (2, 3, 1, 1)
+        citation = index.citation(SHAPE, ("x", "a", "v"))
+        assert (citation.source_id, citation.node_ids, citation.sentence_id) == (
+            "first",
+            (3, 4, 5),
+            0,
+        )
+        item_id = index.fragment_id(SHAPE, ("x", "a", "v"))
+        fingerprint = index.fingerprint
+        assert index.fragment_count(item_id) == counts.c
+        assert index.fragment_sizes()[item_id[0]] > item_id[1]
+        assert index.fragment_id(SHAPE, ("未観測", "a", "v")) is None
+        with pytest.raises(ValueError, match="範囲外"):
+            index.fragment_count((item_id[0], index.fragment_sizes()[item_id[0]]))
+    with open_index(tmp_path) as reopened:
+        assert reopened.fingerprint == fingerprint
+        assert reopened.fragment_id(SHAPE, ("x", "a", "v")) == item_id
+        assert reopened.fragment_count(item_id) == 2
+
+
+def test_compressed_random_access_cross_batch_postings_and_uint64(tmp_path):
+    from native_japanese.usage_index import F_DTYPE
+    from native_japanese.usage_storage import (
+        BATCH_ROWS,
+        BatchCache,
+        CompressedArray,
+        write_array,
+    )
+
+    # SQLiteのcount上限を含む値も切り詰めず、任意順のIDで復号する。
+    values = np.zeros(BATCH_ROWS * 3 + 7, dtype=F_DTYPE)
+    values["count"] = np.arange(len(values), dtype="<u8") + (1 << 32)
+    values["articles"] = 1
+    values["nodes"][:, 3] = (1 << 32) - 1
+    values[1]["count"] = (1 << 63) - 1
+    path = tmp_path / "f.arrow"
+    write_array(path, values)
+    cache = BatchCache(BATCH_ROWS * F_DTYPE.itemsize)
+    array = CompressedArray(path, F_DTYPE, len(values), cache)
+    try:
+        for item in (len(values) - 1, 1, BATCH_ROWS + 1, 0, BATCH_ROWS * 2):
+            assert array[item] == values[item]
+            assert cache.bytes <= cache.budget
+        actual = np.concatenate(list(array.iter_slice(BATCH_ROWS - 2, BATCH_ROWS * 2 + 2)))
+        np.testing.assert_array_equal(actual, values[BATCH_ROWS - 2 : BATCH_ROWS * 2 + 2])
+    finally:
+        array.close()
+
+
+def test_partial_document_rollback_and_failed_export_stay_incomplete(tmp_path, monkeypatch):
+    # 最初の文が追記された後、二つ目の文で予算を超えても文書全体を取り消す。
+    base = document("bad", (("x", "a", "v"), ("x", "b", "w"), ("y", "c", "z")))
+    two_sentences = replace(
+        base,
+        sentences=(
+            Sentence(0, 0, 3, 0, 5),
+            Sentence(1, 3, 9, 6, len(base.text)),
+        ),
+    )
+    with UsageIndexBuilder(
+        tmp_path,
+        metadata=META,
+        source_identity=IDENTITY,
+        source_sha256=SOURCE_SHA,
+        expected_documents=1,
+        max_fragments_per_sentence=4,
+    ) as build:
+        with pytest.raises(FragmentBudgetExceeded):
+            build.add_document(two_sentences, article_id="A")
+        assert build.documents == build.fragments == 0
+        assert build.db.execute("SELECT count(*) FROM occurrence").fetchone()[0] == 0
+        assert build.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 0
+        build.add_document(document("good", (("x", "a", "v"),)), article_id="A")
+
+        def fail_export(*_):
+            raise OSError("書出し失敗")
+
+        monkeypatch.setattr(build, "_export_shard", fail_export)
+        with pytest.raises(OSError, match="書出し失敗"):
+            build.finish(input_complete=True)
+    with pytest.raises(IndexUnavailableError, match="未完了"):
+        open_index(tmp_path)
+    with sqlite3.connect(tmp_path / "build.sqlite") as spool:
+        assert spool.execute("SELECT count(*) FROM sources").fetchone()[0] == 1
