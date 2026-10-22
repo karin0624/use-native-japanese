@@ -1,6 +1,6 @@
 # textlint接続
 
-このルールは[Python検査器](runtime.md)の常駐JSONL出力をtextlintの位置付き指摘へ接続します。先に[セットアップ](setup.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませてください。実際の検査経路の統合検証を進めており、人工workerの通信試験だけを検出精度や応答速度の証拠にはしません。
+このルールは[Python検査器](runtime.md)の常駐JSONL出力をtextlintの位置付き指摘へ接続します。先に[セットアップ](setup.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませてください。実解析からの指摘位置と常駐workerの再利用を確認済みです。[検証結果](runtime-validation.md)では、この実接続と人工workerによる通信・位置の試験を区別しています。
 
 ## 導入と設定
 
