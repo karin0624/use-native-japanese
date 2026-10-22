@@ -1,17 +1,21 @@
 # データ準備と開発環境
 
-現在は検出方式を比較する準備段階です。日本語解析、検出器、訂正器、利用者向けCLIは未実装です。`scripts/` は取得・形式変換・固定分割だけを行います。Python 3.12で検証しています。参照コーパス取得はPOSIXの`resource`を使用します。
+現在は[構成と情報契約](architecture.md)に沿って部品を実装する段階です。`src/native_japanese/`には既存解析の保存、構造の列挙、用例索引、位置付き文脈表現があります。学習済み検出器、訂正器、利用者向けCLIはまだありません。`scripts/`は取得・形式変換・固定分割・共通評価に使います。Python 3.12で検証しています。参照コーパス取得はPOSIXの`resource`を使用します。
 
 リポジトリ直下で実行します。既存環境と分けるため、以下は`.venv-check`を使います。
 
 ```sh
 UV_PROJECT_ENVIRONMENT=.venv-check uv sync --locked --extra data
 .venv-check/bin/python -m pytest -q
-.venv-check/bin/ruff check scripts tests
-.venv-check/bin/ruff format --check scripts tests
+.venv-check/bin/ruff check src scripts tests
+.venv-check/bin/ruff format --check src scripts tests
 ```
 
-通常の依存は空です。開発グループはpytestとRuff、任意の`data` extraはNumPy、SciPy、scikit-learn、PyArrowだけです。モデルや日本語解析器は含めません。データ準備の版本は、レビュー済み成果を再現する既存実行に合わせて固定し、間接依存は`uv.lock`で固定します。取得コーパス、原本、生成物、重みは`data/`や`artifacts/`等のGit対象外へ保存してください。
+通常の依存はGiNZAとその固定モデル・辞書、igraph、marisa-trie、NumPyです。開発グループはpytestとRuff、`data` extraはデータ準備用のSciPy、scikit-learn、PyArrow等です。直接依存と間接依存は`pyproject.toml`と`uv.lock`で固定しています。取得コーパス、原本、生成索引、重みは`data/`や`artifacts/`等のGit対象外へ保存してください。
+
+文脈表現も検証する場合は`uv sync --locked --extra data --extra detector`を同じ隔離環境に実行します。`detector` extraにはPyTorch、Transformers、日本語tokenizer、位置整列の依存が入り、LinuxとWindowsではCPU版PyTorchを選びます。encoderのテストは小型モデルをその場で作り、公開重みを取得しません。実行時もモデルの自動downloadは行わず、呼出側が準備したローカル重みだけを読みます。依存がない場合はencoderのテストをskipするため、基本環境だけのテスト成功を文脈表現の検証済みとは扱わないでください。
+
+`GinzaParser`は公開token・head・dep・文境界をそのまま保存し、`enumerate_fragments`が汎用graph処理で2〜4 nodeの連結構造を列挙します。`UsageIndexBuilder`は固定した入力件数と出典を受け取り、全入力の処理後だけ完成索引を公開します。解析や索引の成功自体は、日本語の正しさの判定ではありません。
 
 ## 教師コーパスの固定実験を再生する
 
