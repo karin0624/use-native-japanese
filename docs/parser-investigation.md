@@ -1,6 +1,6 @@
 # 解析部品の調査
 
-調査更新日: 2026-10-21（UTC）。製品方式は未採用である。以下は、構文関係を用いる方式を選ぶ場合の部品調査であり、コーパス方式や名詞・格・述語の三つ組を要件にするものではない。
+調査更新日: 2026年10月22日。製品方式は未採用である。以下は、構文関係を用いる方式を選ぶ場合の部品調査であり、コーパス方式や名詞・格・述語の三つ組を要件にするものではない。
 
 ## 判断基準
 
@@ -15,7 +15,7 @@
 | GiNZAの文節API | [公式の述語・項抽出例](https://github.com/megagonlabs/ginza/blob/v5.3.0/docs/bunsetu_api.md)を変更せず実行できる。「削除する」のキーは「削除」、「情報を正しくする」では「正しい」と「する」が別に出る | 公式例の出力だけでは、各方式で必要になる述語単位と一致するとは限らない。独自の結合規則で補完しない |
 | Juman++・KNP・rhoknp | KNPは用言代表表記や格の情報を出力する。[rhoknp](https://github.com/ku-nlp/rhoknp)に解析結果を読むAPIがある | 公式配布物を実測済み。用言代表表記・係・parentを既存APIで読める。表層格と意味格を区別する必要があり、辞書の商用利用条件は未確認 |
 | KNP・pyknp-eventgraph | [述語API](https://github.com/ku-nlp/pyknp-eventgraph/blob/main/pyknp_eventgraph/predicate.py)に`normalized_reps`、`standard_reps`がある。KNPの代表表記があれば利用する | KNPの出力を直接読む方法より、この依存追加が必要かを確認する |
-| KWJA・rhoknp | 既存APIで述語項構造を取得できる。現行設定はガ・ヲ・ニ・ガ２・デ・ト・時間を扱う | 述語全体の安定したIDへの接続、CPU性能、配布チェックポイントの条件が未確認 |
+| KWJA・rhoknp | 既存APIで述語主辞の基本形・代表表記と述語項構造を取得できる。現行設定はガ・ヲ・ニ・ガ２・デ・ト・時間を扱う | 必要な解析taskだけを用いる経路、CPU性能、配布チェックポイントの条件を確認する。述語句全体の安定したIDを前提にしない |
 | KWJA・pyknp-eventgraph | [2022年の公式論文](https://murawaki.org/pubdb/NL253ueda.pdf)に利用例がある | 現行公開版ではKWJAの`rel`出力からEventGraphの項へ接続する経路を確認できていない。論文の実績を否定せず、接続方法の未確認として扱う |
 | desuwa | [述語抽出API](https://github.com/megagonlabs/desuwa/blob/main/desuwa/predicate.py)がKNP由来の既存素性を利用する | [対応処理](https://github.com/megagonlabs/desuwa/blob/main/README.md)は形態素・基本句の素性付与で、依存構造解析は別途必要。リポジトリはアーカイブ済み、公開依存条件はPython 3.8以上3.11未満 |
 
@@ -45,6 +45,16 @@ Juman++ 2.0.0-rc4（辞書20210915-2a1662a）、KNP 5.0 revision `bc4cef1`、rho
 一方、公開APIで原文・全形態素列・基本句ID・関係の両端を保持できる。既存の基本句に「高くする」の全内容が入れば、その内容をそのまま保存できる。別基本句の場合は核の参照だけで全内容にならない。該当する公式fixtureはなく、実出力は未確認。完全な正規化IDの不在を不可能性の証明にせず、**必要な情報が既存単位に残るか、比較時に利用できるか**を次の確認事項にする。独自の形容詞・するの結合規則は足さない。
 
 [Pas](https://github.com/ku-nlp/rhoknp/blob/665dcfb97c0d4c9b617af9f110e67799ac7f8c59/src/rhoknp/cohesion/pas.py)の`get_all_arguments()`は既定で共参照先も返す。元の解析が結んだ項を読む用途では`relax=False`とし、本文内の項と外界照応を区別する。`Argument.case`は表層助詞そのものではなく、主辞表示文字列だけを原対象の全体とも見なさない。
+
+## 今回の限定照合で使う経路
+
+語の基本形・代表表記と、同じ出現の格関係を別に読むため、既存Juman++ → KWJA 2.5.1のword tiny → rhoknp 1.8.2を選ぶ。KWJAには形態・格の解析を担当させ、使用実績は参照資料への照合で確認する。
+
+[公式CHANGELOG](https://github.com/ku-nlp/kwja/blob/v2.5.1/CHANGELOG.md)と[CLI](https://github.com/ku-nlp/kwja/blob/v2.5.1/src/kwja/cli/cli.py)に、`--tasks word --input-format jumanpp --device cpu --model-size tiny` という公開経路がある。raw入力での文字正規化を通さず、既存Juman++の形態素列を渡せる。wordのwriterは表層を保ち、既存の辞書と活用処理でlemma/canonを再付与する。Juman++の基本形をそのまま固定する設定ではない。rhoknpの既存wrapperで常駐再利用とDocumentの受け渡しができ、独自のCLI通信実装は不要である。
+
+releaseの依存はPython 3.9以上3.14未満、PyTorch 2.4以上2.8未満等。Python 3.12、CPU版PyTorch 2.7.1を使用する。新規checkpointは[公式配布のword tiny](https://huggingface.co/ku-nlp/kwja-checkpoints/blob/4c5db234089ca9e524fc5d32d383bc45e6fe27a2/word_deberta-v2-tiny.ckpt)一本、44,135,170 bytes、SHA-256 `eca1a9ae0c3a6acb4f73fea67170a3b628a4933dd87d4f489739cea7ecfcd500`。別にtokenizer・configと依存パッケージが必要である。KNPの格フレーム、char・seq2seq・typoのモデルは使わない。tinyが対象文を正しく解析することやリアルタイム性は、メタデータからは分からない。
+
+保守はrelease日だけで判断していない。stable 2.5.1は2025年8月、mainには2026年9月の実質変更があり、devには[word推論のメモリ改善 #260](https://github.com/ku-nlp/kwja/pull/260)と[長さ超過での未解析通知 #264](https://github.com/ku-nlp/kwja/pull/264)がmergeされている。これらdevの変更をstableに含まれるものとは扱わない。限定照合では入力ID・表層・位置の保存を確認し、欠落を未観測へ読み替えない。
 
 ## issueから分かったこと
 
