@@ -57,3 +57,11 @@ KNPは辞書で関係を選択するため、辞書に乏しい用法の項を�
 scratchのGPT-6.1-sol実装をfresh contextでレビュー後、起動込み120秒以内で確認する。段階別の時間・RSS・失敗を残し、遅延を未解析や指摘なしへ変えない。計算の膨張が解消し対象の原語と格が保たれれば、この二段階を全文確認へ採用する。不十分なら実際に残った原因へ戻り、候補数・文長の切捨てや語別補修を加えない。
 
 一次根拠は固定sourceの[日本語構造採点](https://github.com/ku-nlp/knp/blob/bc4cef188669f88cdeb590fe7afb1021ce2ae481/system/cky.c)、[一構造での格解析](https://github.com/ku-nlp/knp/blob/bc4cef188669f88cdeb590fe7afb1021ce2ae481/system/dpnd_analysis.c#L3087)。資源・採点・選択肢の調査はGit外の`native-parser-latency-research-20261022.md`に保存した。
+
+### 二段階の確認結果
+
+計画commit `904fa3e`の4文103形態素を、fresh contextレビュー後に一度実行した。第一段は1.562秒・最大RSS47.96MiBで4文を出力し、原形態素と原位置を保持した。そのraw出力と第二段の入力のhashは一致した。しかし第二段は117.947秒を費やし、起動から120秒の外部上限で停止した。CPU時間は約116.41秒、最大RSS98.59MiB、stdout・stderrはともに0byteだった。
+
+したがって、構造候補ごとの格解析を避けるだけでは通常文の速度は成立しなかった。第二段のPAS・正規化・構造保持は未取得であり、第一段の成功を格取得の成功へ読み替えない。構造固定後に残る格割当・用例照合の処理を調べ、既存の標準経路との差に基づいて次の構成を決める。設定を順に変える再試行や全文再実行は行っていない。
+
+原記録はGit外の`two-stage-parser-check-20261022/`。固定入力SHA-256は`9d78f32c971cbd567c5dc7abedfb6e28aecf07fb99f3c171bf73af65781648e4`、manifestは`80eb432af73edbc00e93a9c21a82b2cb4acd34d291da8afcd5f71a5c660e95b7`。
