@@ -1,19 +1,23 @@
 # Python APIとCLI
 
-[セットアップ](setup.md)で生成した`etc/native-runtime.json`と、Git外の派生SQLite DBを使います。以下はリポジトリで仮想環境を有効にした後の操作です。`native-japanese`は`python -m native_japanese`でも呼び出せます。
+[セットアップ](setup.md)後、出典付き正本から配布参照を作ります。`native-japanese`は`python -m native_japanese`でも呼べます。資源・原文・生成DBはGit外へ置きます。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。
 
 ## 索引準備と検査
 
 ```sh
-PREFIX=/path/to/native-runtime
-DERIVED=/path/to/local/derived.sqlite3
-native-japanese prepare --config "$PREFIX/etc/native-runtime.json" --cache "$DERIVED"
-native-japanese lint --config "$PREFIX/etc/native-runtime.json" --cache "$DERIVED" input.txt
+. .venv/bin/activate
+ASSETS=/path/to/assets
+ARCHIVE=/path/to/examples.sqlite3
+REFERENCE=/path/to/reference.sqlite3
+native-japanese prepare --examples "$ARCHIVE" --reference "$REFERENCE" --assets-dir "$ASSETS"
+native-japanese lint --reference "$REFERENCE" --assets-dir "$ASSETS" input.txt
 ```
 
-`prepare`は既成CDBの名詞ID逆引きを派生DBへ準備します。[setupのprepare](setup.md)による資源取得とは別の操作です。用例群の平均は必要になった群ごとに保存するため、prepareだけで全ての初回計算が終わるわけではありません。元のCDBは変更しません。資源・モデル・方式の異なる派生DBの混用は拒否します。
+`prepare`は正本からBloom集合と群平均をcompileし、完成した配布参照を置き換えます。初回は下の手順で正本を用意します。追加取込後も再compileしてください。正本は更新・監査・再compile用で、`lint`・`serve`に不要です。検査端末は配布参照と固定モデル・解析依存だけを使います。
 
-`lint`はUTF-8の本文全体を読みます。入力ファイルの省略または`-`で標準入力を使います。成功時はJSONを1件、失敗時はstderrへ理由を出し終了値1を返します。`--timeout`は解析器の応答期限（秒、既定30）です。`--threshold`で境界を指定できますが、今回の評価は既定の0.35で固定します。
+`lint`はUTF-8本文を読み、入力省略または`-`で標準入力を使います。成功時はJSONを1件、失敗時はstderrへ理由を出して終了値1を返します。`--threshold`の既定値は0.35で、現行の検証では固定します。
+
+ファイル引数の読込みには既存の改行変換が残り、CRLFはLFになります。元ファイルのCRLFを含む位置が必要な場合は、改行を保持した文字列をPython APIまたはJSONLへ渡してください。textlintはJSONLの経路を使います。
 
 ## Pythonで常駐させる
 
@@ -21,73 +25,62 @@ native-japanese lint --config "$PREFIX/etc/native-runtime.json" --cache "$DERIVE
 from native_japanese.service import Inspector
 
 with Inspector(
-    config_path="/path/to/native-runtime/etc/native-runtime.json",
-    cache_path="/path/to/local/derived.sqlite3",
-    # examples_path="/path/to/local/examples.sqlite3",  # 追加用例がある場合
+    reference_path="/path/to/reference.sqlite3",
+    assets_dir="/path/to/assets",
+    threshold=0.35,
 ) as inspector:
     analysis = inspector.analyze("本文をここに渡します。")
     result = inspector.lint("重複を畳む。")
     results = inspector.lint_many(["一つ目の本文。", "二つ目の本文。"])
 ```
 
-同じ`Inspector`が解析器と参照を保持します。`analyze`は解析関係・端点・不能理由を返し、`lint`はそれに照会結果と指摘を加えます。Python内の範囲は0始まり・終端を含まない文字添字です。`with`を使わない場合は`close()`で解放します。解析器の異常終了・timeout・原文との位置不一致は処理エラーです。
+同じ`Inspector`が解析器と参照を再利用します。`analyze`は解析関係・端点・不能理由、`lint`と`lint_many`は照会結果と指摘も返します。Python内の位置は0始まり・終端を含まない文字添字です。`with`を使わない場合は`close()`で解放します。原文との位置不一致や契約不一致は処理エラーです。
 
-現在、`<your-node-name>`を含む技術文の一部で、KNPの素性値の`>`がescapeされずrhoknpで読めない制約を確認しています。この場合は処理エラーとなります。用例不足や誤用判定とは区別し、入力を自動で削除・補正しません。
-
-常駐時も、短文で8〜9秒かかる例が残っています。[実測と制約](runtime-validation.md)を参照してください。
-
-`result.relations`の状態は次のとおりです。
-
-| status | 意味 |
+| `result.relations`のstatus | 意味 |
 | --- | --- |
-| `observed` | 既成辞書または追加用例に直接の観測がある |
-| `supported` | 直接観測はないが、比較可能な支持が境界以上 |
-| `review` | 直接観測がなく、支持が境界未満で確認が必要 |
+| `indexed` | Bloom近似索引で陽性。低確率の誤通過があり、実用例の直接確認ではない |
+| `supported` | 索引は陰性で、比較可能な支持が境界以上 |
+| `review` | 索引は陰性で、比較可能な支持が境界未満 |
 | `unavailable` | 比較可能な数値がなく、理由を保持する |
 
-`review`では名詞・述語の端点へ指摘を返します。`score`は通常frame・公開照会候補間の最大のDです。Dは名詞群の方向への類似度であり、正誤確率ではありません。直接観測の有無とscoreは別で、不能を数値0へ置き換えません。文単位の解析不能は`analysis.unavailable`にも残ります。解析情報の不足には公開関係が得られない場合や、名詞・述語候補に項がない場合も含みます。指摘が空でも全てを判定できたとは限らないため、状態と不能理由を確認してください。
+陰性だけでは警告しません。`review`では名詞・述語それぞれの端点へ指摘を返します。`score`は同じ条件の名詞群平均の方向への類似度で、正誤確率ではありません。不能を0へ置き換えず、未収録群・ベクトル不能・解析情報不足の理由を残します。指摘が空でも全文を判定できたとは限りません。訂正案は未実装です。
 
 ## JSONLで常駐させる
 
 ```sh
-native-japanese serve --config "$PREFIX/etc/native-runtime.json" --cache "$DERIVED"
+native-japanese serve --reference "$REFERENCE" --assets-dir "$ASSETS"
 ```
 
-stdinに`{"id":"1","texts":["一つ目の本文。","二つ目の本文。"]}`のような要求を1行ずつ送ります。stdoutには同じ`id`と同じ順序の`results`を返します。`lint`と`serve`の外部結果は`offsetEncoding: "utf-16"`を明示し、指摘・関係の端点・不能範囲をUTF-16へ変換します。結果には`diagnostics`、`relations`、`unavailable`が含まれます。要求単位の失敗は`error.message`で返し、後続要求の受付を続けます。
+stdinへ`{"id":"1","texts":["一つ目の本文。","二つ目の本文。"]}`を1行ずつ送ると、同じ`id`と同じ順序の`results`を返します。`lint`・`serve`の結果には`offsetEncoding: "utf-16"`、`diagnostics`、`relations`、`unavailable`が含まれ、全範囲をUTF-16へ変換します。要求単位の失敗は`error.message`で返し、後続要求を受け付けます。
 
-`unavailable`には解析側の不能と、関係の`status`が`unavailable`になった結果を集約します。各項目は`kind`（`analysis`または`reference`）、空でない`reason`、空でないUTF-16端点範囲の配列`ranges`を持ち、関係の名詞・述語の端点を保持します。`analysis`は解析情報の不足、`reference`は参照との比較不能です。textlintはこの配列だけを使い、それぞれ「判定保留（解析情報）: 理由」「判定保留（比較不能）: 理由」と表示します。誤用の指摘とは区別し、参照不足を段落全体の処理失敗にはしません。プロトコルの詳細と互換性は[textlint接続](textlint.md)を参照してください。
+`unavailable`は`kind`（`analysis`または`reference`）、理由`reason`、端点範囲配列`ranges`を持ちます。textlintはこれを「判定保留（解析情報）」「判定保留（比較不能）」として誤用指摘と区別します。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
 
 ## 出典付き用例を追加する
 
-信頼できる別出典の本文をUTF-8で用意し、その出典IDと所在を指定します。以下のURLは置換用です。抽出結果を確認してから取り込みます。
+信頼できる別出典のUTF-8本文から、入力と同じGiNZA契約で抽出します。以下の出典URLは置換用です。抽出結果と原文を確認して取り込みます。
 
 ```sh
-native-japanese extract --config "$PREFIX/etc/native-runtime.json" \
-  --source-id source-001 --source-url 'https://example.org/source' \
-  source.txt > examples.jsonl
-native-japanese import --examples /path/to/local/examples.sqlite3 examples.jsonl
-native-japanese lint --config "$PREFIX/etc/native-runtime.json" --cache "$DERIVED" \
-  --examples /path/to/local/examples.sqlite3 input.txt
+native-japanese extract --source-id source-001 --source-url 'https://example.org/source' \
+  source.txt > /path/to/examples.jsonl
+native-japanese import --examples "$ARCHIVE" /path/to/examples.jsonl
+native-japanese prepare --examples "$ARCHIVE" --reference "$REFERENCE" --assets-dir "$ASSETS"
 ```
 
-`extract`と`import`も入力省略または`-`で標準入力を使います。`extract`は`--timeout`を指定できますが、派生索引やvectorを必要としません。`serve`も同じ`--examples`を受け取ります。Pythonでは`examples_path`で同じDBを指定します。
+`extract`・`import`も入力省略または`-`で標準入力を使います。抽出に参照・ベクトルは不要です。取込後の再compileで集合と群平均へ反映し、検査器は新しい参照で起動します。
 
-1行は次の9キーだけを持つJSON objectです。
+1行は次の11キーだけを持つJSON objectです。
 
 | キー | 内容 |
 | --- | --- |
-| `schema_version` | 整数`1` |
-| `normalization_identity` | `knp-standard-cv-head-v1` |
-| `predicate` | 正規化した述語 |
-| `predicate_type` | 述語型 |
-| `case` | 格 |
-| `noun` | 名詞全体 |
-| `source_id` | 出典ID |
-| `observation_id` | 同じ出現を識別するID |
-| `source_url` | 出典の所在 |
+| `schema_version` | 整数`2` |
+| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-v1` |
+| `predicate`・`noun` | 公開句全体の空でないlemma文字列配列 |
+| `predicate_type` | `VERB`または`ADJ` |
+| `dependency` | 元依存ラベル（空でない文字列） |
+| `noun_type` | `NOUN`または`PROPN` |
+| `noun_role` | 元方向`head`または`dependent` |
+| `source_id`・`observation_id`・`source_url` | 出典ID・出現ID・所在（空でない文字列） |
 
-版・正規化契約以外は空でない文字列です。`extract`は既存解析から同じ出現の照会候補を出力し、本文のhashと端点から出現IDを作ります。原文はJSONLやDBへ保存しません。抽出はその語の使い方の正しさを保証しないため、出典の選定・原文確認・利用条件の確認が必要です。評価入力そのものや手作業の正解用例の登録を、別出典追加による改善の証拠にしません。
+`extract`は本文hashと端点から出現IDを作り、原文全文はJSONL・正本DBへ保存しません。旧KNPのschema1とは互換ではありません。抽出は正用の保証ではなく、出典選定・原文・利用条件の確認が必要です。評価入力や手作業の正解登録を、別出典追加の改善実証へ数えません。
 
-`import`は形式を検証してSQLiteへ保存し、再解析やaliasの組合せ生成はしません。直接支持の一致キーは`(predicate, predicate_type, case, noun)`です。異なる出典との対応は保持しますが頻度で加点しません。同じ記録の再取込は重複登録せず、不正行があればその取込全体を取り消します。返却JSONの`records`は処理した行数、`usages_added`と`observations_added`は新規追加数です。
-
-追加用例は直接観測へだけ反映します。群平均の更新、追加語から未追加語への一般化、訂正案は未実装です。保存・取込・照会費用の構造と残るCDB組合せ展開の制約は[実装方針](incremental-runtime.md#保存量と実行費用)にあります。少量の測定だけで大規模性能を保証しません。
+`import`は再解析せず形式を検証して正本SQLiteへ保存します。不正行があれば取込全体を取り消し、同じ記録の再取込は重複登録しません。返却JSONは`records`（処理行数）、`usages_added`（新しい組合せ）、`observations_added`（新しい出典対応）です。同じ組合せの頻度・出典だけを増やしても、配布集合や等票の群平均は増えません。容量の増え方は[構成](architecture.md#用例の構築と配布を分ける)を参照してください。旧方式の[検証結果](runtime-validation.md)は履歴であり、現方式の精度・遅延を示しません。

@@ -1,4 +1,4 @@
-"""固定資源・native設定の検証と、許可済みvectorのloadを共有する。"""
+"""固定資源の検証と、許可済みvectorのloadを共有する。"""
 
 from __future__ import annotations
 
@@ -45,72 +45,6 @@ def save(path, value):
     temporary = path.with_suffix(path.suffix + ".part")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
     temporary.replace(path)
-
-
-def identity(path):
-    stat = path.stat()
-    return {
-        "resolved": str(path.resolve()),
-        "bytes": stat.st_size,
-        "mtime_ns": stat.st_mtime_ns,
-        "ctime_ns": stat.st_ctime_ns,
-        "device": stat.st_dev,
-        "inode": stat.st_ino,
-    }
-
-
-def required_files(data):
-    return [
-        "bin/knp",
-        "bin/jumanpp",
-        "etc/knprc",
-        "build.json",
-        "libexec/jumanpp/jumandic.config",
-        "libexec/jumanpp/jumandic.jppmdl",
-        *["share/juman/dic/" + name for name in data["grammar_files"]],
-        *["share/knp/rule/" + name + ".data" for name in data["rules"]],
-        *["share/knp/dict/" + name for name in data["generated_dict"]],
-        *[
-            "share/knp/dict/" + x["path"].removeprefix("knp/")
-            for x in data["assets"]
-            if "member" in x and x["id"] != "wikipedia.dat.skip"
-        ],
-    ]
-
-
-def read_runtime(config_path: Path, full: bool = False) -> dict:
-    data, record = metadata(), json.loads(config_path.read_text())
-    require(
-        record["schema"] == 1
-        and record["contract"] == data["contract"]
-        and record["metadata_sha256"] == metadata_sha256(),
-        "runtime契約の不一致",
-    )
-    prefix = Path(record["prefix"])
-    require(
-        record["options"] == ["-r", str(prefix / "etc/knprc"), *data["options"]], "固定option不一致"
-    )
-    require(
-        set(required_files(data)) <= {x["path"] for x in record["files"]}, "必須runtime記録不足"
-    )
-    for item in record["files"]:
-        require(
-            not Path(item["path"]).is_absolute() and ".." not in Path(item["path"]).parts,
-            "runtime記録の相対pathが不正です",
-        )
-        path = prefix / item["path"]
-        require(path.is_file(), f"runtime file不足: {item['path']}")
-        if full:
-            require(sha256(path) == item["sha256"], f"runtime hash不一致: {item['path']}")
-            item.update(identity(path))
-        else:
-            require(
-                identity(path) == {k: item[k] for k in identity(path)},
-                f"runtime identity変更。完全verifyが必要: {item['path']}",
-            )
-    if full:
-        save(config_path, record)
-    return record
 
 
 def check_versions(expected):
