@@ -1,6 +1,6 @@
 # 三結果契約と参照再生成の検証
 
-2026-10-25。[課題8](https://github.com/karin0624/use-native-japanese/issues/8)の現行契約と、[課題11](https://github.com/karin0624/use-native-japanese/issues/11)のclone後の実行経路を確認した。旧契約の[自然参照検証](compact-runtime-validation.md)と[配布物検証](npm-distribution-plan.md#配布物の検証結果)は当時の履歴として保持する。
+2026-10-25。以下は[課題8](https://github.com/karin0624/use-native-japanese/issues/8)のv2導入時の検証と、[課題11](https://github.com/karin0624/use-native-japanese/issues/11)のclone後の実行確認である。v3での対象選択の修正は末尾に記す。旧契約の[自然参照検証](compact-runtime-validation.md)と[配布物検証](npm-distribution-plan.md#配布物の検証結果)も当時の履歴として保持する。
 
 ## 契約と固定条件
 
@@ -51,4 +51,14 @@ Pythonは105 testsと19 subtests、Nodeは22件、checkout接続は2件が成功
 
 新配布物のpackとLinuxでの導入検査も成功した。リポジトリ外の別プロジェクトへ導入し、空の専用cacheからの初回検査、準備済み環境での`UV_OFFLINE=1`による再検査、公開Python CLIとの全メッセージ・UTF-16範囲の一致を確認した。資源実体・GiNZA wheelのhashと帰属資料を確認し、原コーパス・構築用正本・cacheの同梱がないことも検査した。
 
-この記録の時点で新しいremote HEADからのcloneと3 OS CIの最終確認は進行中であり、完了結果には含めない。独立した正誤ラベルによる精度・誤指摘率の改善や、日本語全体での用法不存在を示す検証ではない。
+その後、remote HEAD `2356292`からの新規cloneと[Linux・macOS・WindowsのCI](https://github.com/karin0624/use-native-japanese/actions/runs/40221892463)も成功した。独立した正誤ラベルによる精度・誤指摘率の改善や、日本語全体での用法不存在を示す検証ではない。
+
+## 助動詞語幹の対象選択を修正したv3
+
+[課題13](https://github.com/karin0624/use-native-japanese/issues/13)では、READMEの「『重複を畳む』のような語の使い方」から「よう／畳む」を照合していた問題を修正した。既存の詳細品詞「助動詞語幹」に分類される名詞側の候補を、語彙の検査対象へ渡さない。語別の除外一覧は追加していない。分類の根拠は[採用方針](compact-runtime-plan.md#製品へ接続する契約)に記す。
+
+同じ6,463区間を再抽出し、128区間から158出現・117用法を除いた。除いた関係はすべて名詞側が「形状詞-助動詞語幹」に分類されており、残る照会・原文位置・順序は不変、追加された照会は0だった。新参照は68,859用法・18,950群、70,557,696 bytes。出典とモデルの実体は変更せず、資源のhashは配布manifestへ更新した。
+
+固定38本文では対象外の6件を除き、残る350件の照会・位置・判定・scoreがすべて不変だった。回帰テストは、引用中の「重複を畳む」の照会と位置、「本を読む人」の通常の修飾関係、「ファイルを削除する」の照会を保つことも確認する。Python 107テストと19 subtestsが成功した。
+
+READMEを変更せず`npx textlint README.md --format json`で比較すると、104指摘から102指摘となった。消えたのは「よう／畳む」の両端への2指摘だけで、新たな指摘は0。「重複／畳む」の検査と指摘は保持された。checkout接続2テスト、Ruff、fresh contextによるコード・資源・差分のレビューも完了した。
