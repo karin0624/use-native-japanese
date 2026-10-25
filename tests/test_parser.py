@@ -1,5 +1,6 @@
 """公開Docと実モデルで原語・関係・位置と未対応の扱いを確かめる。"""
 
+import ginza
 import pytest
 from spacy.tokens import Doc
 from spacy.vocab import Vocab
@@ -63,28 +64,35 @@ def test_literal_text_and_batch_results_preserve_original_positions(parser):
 def test_noun_predicates_do_not_become_comparison_failures(parser):
     result = parser.analyze("私のねこはとしよりです。")
     assert not result.relations
-    assert not result.unavailable
 
 
-def test_phrase_excluding_its_source_token_is_unavailable():
-    # 複数の外部依存を持つ文節で、公式phraseのrootと元Tokenが異なる場合。
-    doc = Doc(
-        Vocab(),
-        words=["場合", "インターネット", "を", "使う", "。"],
-        spaces=[False] * 5,
-        heads=[3, 3, 1, 3, 3],
-        deps=["obl", "obj", "case", "ROOT", "punct"],
-        pos=["NOUN", "NOUN", "ADP", "VERB", "PUNCT"],
-        lemmas=["場合", "インターネット", "を", "使う", "。"],
-    )
-    doc.user_data["bunsetu_heads"] = (0, 1, 3)
-    doc.user_data["bunsetu_bi_labels"] = ["B", "I", "I", "B", "I"]
-    result = adapt_doc(doc, doc.text)
-    assert len(result.unavailable) == 1
-    assert result.unavailable[0].ranges == ((2, 9),)
-    assert "中心となる語が含まれていません" in result.unavailable[0].reason
-    assert all(query.dependency != "obj" for row in result.relations for query in row.queries)
-    assert any(query.dependency == "obl" for row in result.relations for query in row.queries)
+def test_original_head_is_preserved_when_bunsetu_root_is_another_token(parser):
+    # 原因再現のため一文だけ引用。文節spanのrootは別の「後漢」になる。
+    # 日本語Wikipedia「後漢書」著者、2019-02-01版、CC BY-SA 3.0。
+    # https://ja.wikipedia.org/?curid=160967 （自然参照160967#0）
+    text = "『後漢書』（ごかんじょ）は、中国後漢朝について書かれた歴史書。"
+    result = parser.analyze(text)
+    expected = Query(("書く",), "VERB", "obl", ("中国", "後漢", "朝"), "NOUN", "dependent")
+    relation = next(row for row in result.relations if expected in row.queries)
+    assert relation.argument.text == "中国後漢朝"
+    assert relation.argument.ranges == ((14, 19),)
+    assert relation.predicate.text == "書か"
+    assert relation.predicate.ranges == ((23, 25),)
+
+
+def test_phrase_api_default_and_non_head_behavior_are_preserved(parser):
+    doc = parser._require_nlp()("家でお皿を洗います。")
+    particle = next(token for token in doc if token.text == "を")
+    assert ginza.bunsetu_phrase_span(particle).text == "お皿"
+    noun = particle.head
+    assert ginza.bunsetu_phrase_span(noun, use_token_head=True).text == "お皿"
+
+
+def test_phrase_contract_violation_is_a_system_error(parser, monkeypatch):
+    # 依存の契約違反を通常の照合結果へ変換しない。
+    monkeypatch.setattr(ginza, "bunsetu_phrase_span", lambda token, **kwargs: token.doc[0:1])
+    with pytest.raises(ValueError, match="中心となる語が含まれていません"):
+        parser.analyze("重複を畳む。")
 
 
 def test_surface_changes_and_model_failure_are_not_unobserved(monkeypatch):

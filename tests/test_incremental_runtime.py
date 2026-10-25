@@ -8,7 +8,7 @@ import pytest
 from test_reference import QUERY as REFERENCE_QUERY
 from test_reference import setup_reference as setup_reference
 
-from native_japanese import Analysis, Endpoint, Query, Relation, Unavailable, reference
+from native_japanese import Analysis, Endpoint, Query, Relation, reference
 from native_japanese import __main__ as cli
 from native_japanese.service import Inspector
 from native_japanese.support import Support
@@ -17,7 +17,7 @@ QUERY = Query(("畳む",), "VERB", "obj", ("重複",), "NOUN", "dependent")
 ALTERNATE = replace(QUERY, noun=("別表記",))
 TEXT = "😀重複を間に挟んで畳む。"
 RELATION = Relation(Endpoint("畳む", ((9, 11),)), Endpoint("重複", ((1, 3),)), (QUERY,))
-ANALYSIS = Analysis(TEXT, (RELATION,), ())
+ANALYSIS = Analysis(TEXT, (RELATION,))
 
 
 def inspector(monkeypatch, *, assessments=None, analysis=ANALYSIS):
@@ -31,7 +31,7 @@ def inspector(monkeypatch, *, assessments=None, analysis=ANALYSIS):
         def analyze(self, text):
             if text == "解析失敗":
                 raise RuntimeError("解析に失敗しました。")
-            return replace(analysis, text=text) if text.strip() else Analysis(text, (), ())
+            return replace(analysis, text=text) if text.strip() else Analysis(text, ())
 
         def analyze_many(self, texts):
             texts = tuple(texts)
@@ -54,7 +54,7 @@ def inspector(monkeypatch, *, assessments=None, analysis=ANALYSIS):
 
         def assess(self, query):
             self.calls.append(query)
-            return (assessments or {}).get(query, Support(False, 0.2, None))
+            return (assessments or {}).get(query, Support(False, 0.2))
 
     monkeypatch.setattr(service, "Parser", Parser)
     monkeypatch.setattr(service, "Reference", Reference)
@@ -64,7 +64,7 @@ def inspector(monkeypatch, *, assessments=None, analysis=ANALYSIS):
 def test_indexed_candidates_suppress_warning_without_claiming_direct_observation(monkeypatch):
     analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=(QUERY, ALTERNATE)),))
     with inspector(
-        monkeypatch, assessments={ALTERNATE: Support(True, None, None)}, analysis=analysis
+        monkeypatch, assessments={ALTERNATE: Support(True, None)}, analysis=analysis
     ) as instance:
         result = instance.lint(TEXT)
         assert result.diagnostics == ()
@@ -76,64 +76,51 @@ def test_indexed_candidates_suppress_warning_without_claiming_direct_observation
     assert instance.parser.closed and instance.reference.closed
 
 
-def test_support_threshold_unavailable_and_discontinuous_utf16_ranges(monkeypatch):
-    analysis = replace(ANALYSIS, unavailable=(Unavailable(((0, 1),), "公開情報不足"),))
-    with inspector(monkeypatch, analysis=analysis) as instance:
+def test_no_support_reports_usage_error_at_discontinuous_utf16_ranges(monkeypatch):
+    with inspector(monkeypatch) as instance:
         result = instance.lint(TEXT)
         assert {item.range for item in result.diagnostics} == {(1, 3), (9, 11)}
         encoded = cli.result_json(result)
         assert encoded["offsetEncoding"] == "utf-16"
         assert {tuple(item["range"]) for item in encoded["diagnostics"]} == {(2, 4), (10, 12)}
-        assert encoded["unavailable"] == [
-            {"kind": "analysis", "ranges": [[0, 2]], "reason": "公開情報不足"}
-        ]
+        assert "unavailable" not in encoded
         assert "analysis" not in encoded
         assert encoded["diagnostics"][0]["message"] == (
-            "「重複」と「畳む」の組み合わせが不自然かもしれません。表現を確認してください。"
+            "「重複」と「畳む」の組み合わせに合う用例が見つかりません。表現を見直してください。"
         )
-    with inspector(monkeypatch, assessments={QUERY: Support(False, None, "比較不能")}) as instance:
+    with inspector(monkeypatch, assessments={QUERY: Support(False, None)}) as instance:
         result = instance.lint(TEXT)
-        assert result.diagnostics == ()
-        assert result.relations[0].status == "unavailable"
-        assert result.relations[0].reasons == ("比較不能",)
-        assert cli.result_json(result)["unavailable"] == [
-            {"kind": "reference", "ranges": [[10, 12], [2, 4]], "reason": "比較不能"}
-        ]
-    with inspector(monkeypatch, assessments={QUERY: Support(False, 0.35, None)}) as instance:
+        assert result.diagnostics
+        assert result.relations[0].status == "review"
+        assert result.relations[0].score is None
+        assert "unavailable" not in cli.result_json(result)
+    with inspector(monkeypatch, assessments={QUERY: Support(False, 0.35)}) as instance:
         assert instance.lint(TEXT).relations[0].status == "supported"
         assert instance.lint(TEXT).diagnostics == ()
 
 
-@pytest.mark.parametrize(
-    ("relation", "reason"),
-    [
-        (replace(RELATION, queries=()), "比較に必要な語の関係を解析結果から取得できません。"),
-        (
-            replace(RELATION, unavailable_reasons=("公開項の原文位置がありません。",)),
-            "公開項の原文位置がありません。比較不能",
-        ),
-    ],
-)
-def test_relation_without_public_analysis_is_not_reference_shortage(monkeypatch, relation, reason):
-    analysis = replace(ANALYSIS, relations=(relation,))
-    with inspector(
-        monkeypatch, analysis=analysis, assessments={QUERY: Support(False, None, "比較不能")}
-    ) as instance:
-        result = instance.lint(TEXT)
-        assert result.diagnostics == ()
-        assert cli.result_json(result)["unavailable"] == [
-            {"kind": "analysis", "ranges": [[10, 12], [2, 4]], "reason": reason}
-        ]
+def test_relation_without_query_is_analysis_failure(monkeypatch):
+    analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=()),))
+    with inspector(monkeypatch, analysis=analysis) as instance:
+        with pytest.raises(ValueError, match="照会条件"):
+            instance.lint(TEXT)
 
 
 def test_all_comparable_candidates_use_greatest_support(monkeypatch):
     analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=(QUERY, ALTERNATE)),))
-    supports = {QUERY: Support(False, 0.2, None), ALTERNATE: Support(False, 0.4, None)}
+    supports = {QUERY: Support(False, 0.2), ALTERNATE: Support(False, 0.4)}
     with inspector(monkeypatch, assessments=supports, analysis=analysis) as instance:
         result = instance.lint(TEXT)
         assert result.diagnostics == ()
         assert result.relations[0].score == 0.4
         assert instance.reference.calls == [QUERY, ALTERNATE]
+
+
+@pytest.mark.parametrize("score", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_support_stops_inspection(monkeypatch, score):
+    with inspector(monkeypatch, assessments={QUERY: Support(False, score)}) as instance:
+        with pytest.raises(ValueError, match="比較結果"):
+            instance.lint(TEXT)
 
 
 def test_serve_retains_ids_errors_empty_unicode_and_batch_parser(monkeypatch, capsys):
@@ -159,7 +146,7 @@ def test_serve_retains_ids_errors_empty_unicode_and_batch_parser(monkeypatch, ca
     assert instance.parser.closed
 
 
-def test_serve_keeps_dictionary_shortage_separate_from_vector_failure(
+def test_serve_reports_no_usage_and_preserves_real_vector_failure(
     setup_reference, monkeypatch, capsys
 ):
     source, output, assets = setup_reference
@@ -182,10 +169,46 @@ def test_serve_keeps_dictionary_shortage_separate_from_vector_failure(
         cli.serve(instance)
     shortage, failure = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "error" not in shortage
-    assert shortage["results"][0]["diagnostics"] == []
-    assert "追加の未収録" in shortage["results"][0]["unavailable"][0]["reason"]
+    assert shortage["results"][0]["diagnostics"]
+    assert "unavailable" not in shortage["results"][0]
     assert failure["id"] == "異常" and "error" in failure and "results" not in failure
     assert "非有限" in failure["error"]["message"]
+
+
+def test_generalization_support_and_vectorless_usage_addition(setup_reference, monkeypatch):
+    from test_examples import lines, record
+
+    from native_japanese.examples import Examples
+
+    source, output, assets = setup_reference
+    reference.build_reference(source, output, assets)
+    probe = replace(REFERENCE_QUERY, noun=("東", "東"))
+    analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=(probe,)),))
+    with inspector(monkeypatch, analysis=analysis) as instance:
+        with reference.Reference(output, assets) as runtime:
+            instance.reference = runtime
+            result = instance.lint(TEXT)
+            assert result.diagnostics == ()
+            assert result.relations[0].status == "supported"
+            assert not result.relations[0].queries[0].support.indexed
+
+    probe = replace(REFERENCE_QUERY, noun=("追加の未収録",))
+    analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=(probe,)),))
+    with inspector(monkeypatch, analysis=analysis) as instance:
+        with reference.Reference(output, assets) as runtime:
+            instance.reference = runtime
+            before = instance.lint(TEXT)
+            assert before.diagnostics
+            assert before.relations[0].score is None
+        with Examples(source, writable=True) as examples:
+            examples.import_jsonl(lines(record(probe)))
+        reference.build_reference(source, output, assets)
+        with reference.Reference(output, assets) as runtime:
+            instance.reference = runtime
+            after = instance.lint(TEXT)
+            assert after.diagnostics == ()
+            assert after.relations[0].status == "indexed"
+            assert after.relations[0].score is None
 
 
 def test_cli_reports_initialization_failure_without_json_noise(monkeypatch, capsys):

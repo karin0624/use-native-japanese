@@ -15,6 +15,7 @@ const cli = path.join(root, "node_modules/textlint/bin/textlint.js");
 function run(command, args, statuses = [0]) {
     const result = spawnSync(command, args, { cwd: root, encoding: "utf8", shell: false, timeout: 120_000 });
     assert.ifError(result.error);
+    assert.doesNotMatch(`${result.stderr}\n${result.stdout}`, /No rules found/i);
     assert.ok(statuses.includes(result.status), `${command}の終了値${result.status}\n${result.stderr}\n${result.stdout}`);
     try { return JSON.parse(result.stdout); }
     catch (cause) {
@@ -34,13 +35,10 @@ function actualMessages(result) {
 function expectedMessages(result) {
     assert.equal(result.offsetEncoding, "utf-16");
     const messages = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese/usage", severity: 2 }));
-    for (const item of result.unavailable) {
-        messages.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese/coverage", severity: 1 })));
-    }
     return ordered(messages);
 }
 
-test("CLIは対応不足のwarningだけなら成功し、本文へのerrorがあれば終了値1を返す", async t => {
+test("CLIは指摘なしなら成功し、本文へのerrorと処理異常を区別する", async t => {
     // 日本語の判定結果を固定せず、既存の人工workerでtextlintの終了状態を確かめる。
     const directory = await mkdtemp(path.join(root, ".textlint-severity-"));
     t.after(() => rm(directory, { recursive: true, force: true }));
@@ -50,13 +48,12 @@ test("CLIは対応不足のwarningだけなら成功し、本文へのerrorが�
     const config = path.join(directory, "textlintrc.json");
     await writeFile(config, JSON.stringify({ rules: {
         "preset-native-japanese": {
-            usage: { command, severity: "error" },
-            coverage: { command, severity: "warning" }
+            usage: { command, severity: "error" }
         }
     } }));
     for (const [name, text, status, severities] of [
-        ["warning", "🍣 解析保留。参照対象を比較する。", 0, [1, 1, 1]],
-        ["mixed", "🍣 解析保留。雲を食べる。", 1, [1, 2]]
+        ["supported", "ご飯を食べる。", 0, []],
+        ["review", "🍣 雲を食べる。", 1, [2]]
     ]) {
         const file = path.join(directory, `${name}.md`);
         await writeFile(file, text);
@@ -64,10 +61,17 @@ test("CLIは対応不足のwarningだけなら成功し、本文へのerrorが�
             "--format", "json", file], [status]);
         assert.deepEqual(result.messages.map(message => message.severity).sort(), severities);
         for (const message of result.messages) {
-            assert.equal(message.ruleId,
-                message.severity === 2 ? "native-japanese/usage" : "native-japanese/coverage");
+            assert.equal(message.ruleId, "native-japanese/usage");
         }
     }
+    const failedFile = path.join(directory, "systemerror.md");
+    await writeFile(failedFile, "エラー");
+    const failed = spawnSync(process.execPath, [cli, "--config", config, "--format", "json", failedFile],
+        { cwd: root, encoding: "utf8", shell: false, timeout: 120_000 });
+    assert.ifError(failed.error);
+    assert.notEqual(failed.status, 0);
+    assert.doesNotMatch(`${failed.stderr}\n${failed.stdout}`, /No rules found/i);
+    assert.match(`${failed.stderr}\n${failed.stdout}`, /人工的な処理失敗/);
 });
 
 test("checkoutの設定でファイル・globを検査し、公開Python CLIのUTF-16範囲と一致する", { timeout: 300_000 }, async t => {

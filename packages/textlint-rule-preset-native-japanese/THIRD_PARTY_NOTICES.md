@@ -26,11 +26,12 @@
 
 ## 起動に用いる依存ソフトウェア
 
+- GiNZA `5.3.0+nativejapanese.1`：MIT。Megagon Labsの公式5.3.0へ、既存の句探索を元Tokenから開始する明示optionを当方が追加したもの。既定の解析動作は維持する。`backend/vendor/ginza/`に同梱し、元の著作権・許諾・免責原文は`licenses/ginza-MIT.txt`とwheel内に保持する。公式配布物のhash、改修差分、再作成手順はrepositoryの`vendor/ginza/`に記録する。[公式source](https://github.com/megagonlabs/ginza/tree/v5.3.0)。
 - `@dataiku/uv` 0.12.0：MIT。Copyright (c) 2025 Trevor Manz。[uv-npm](https://github.com/575-lab/uv-npm)。原文は`licenses/uv-npm-MIT.txt`。
 - uv 0.12.0：MITの許諾を使用。Copyright (c) 2025 Astral Software Inc.。[uv](https://github.com/astral-sh/uv/tree/0.12.0)。原文は`licenses/uv-MIT.txt`。
 - `compress-fasttext`：MIT。Copyright (c) 2020 David Dale。[compress-fasttext](https://github.com/avidale/compress-fasttext)。圧縮ソフトウェアのMITとモデル自体のCC条件は別である。原文は`licenses/compress-fasttext-MIT.txt`。
 
-Python本体やPython依存packageは初回実行時にuv経由で取得する別配布物であり、それぞれの提供者の条件を保持する。
+Python本体と上記GiNZA以外のPython依存packageは初回実行時にuv経由で取得する別配布物であり、それぞれの提供者の条件を保持する。
 
 ## ライセンス原文の取得元
 
@@ -41,3 +42,4 @@ Python本体やPython依存packageは初回実行時にuv経由で取得する�
 - `uv-MIT.txt`：https://raw.githubusercontent.com/astral-sh/uv/0.12.0/LICENSE-MIT
 - `uv-npm-MIT.txt`：https://raw.githubusercontent.com/575-lab/uv-npm/main/LICENSE
 - `compress-fasttext-MIT.txt`：https://raw.githubusercontent.com/avidale/compress-fasttext/master/LICENSE
+- `ginza-MIT.txt`：GiNZA公式5.3.0 wheelの`ginza-5.3.0.dist-info/licenses/LICENSE`。公式wheelのURLとhashはrepositoryの`vendor/ginza/upstream.json`。

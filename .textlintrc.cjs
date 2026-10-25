@@ -9,8 +9,7 @@ const command = [python, "-E", "-X", "utf8", "-m", "native_japanese", "serve",
 module.exports = {
     rules: {
         "preset-native-japanese": {
-            usage: { command, severity: "error" },
-            coverage: { command, severity: "warning" }
+            usage: { command, severity: "error" }
         }
     }
 };

@@ -1,0 +1,26 @@
+--- a/ginza/bunsetu_recognizer.py
++++ b/ginza/bunsetu_recognizer.py
+@@ -117,7 +117,13 @@
+     ]
+ 
+ 
+-def bunsetu_phrase_span(token: Token, phrase_relations: Iterable[str] = PHRASE_RELATIONS) -> Span:
++def bunsetu_phrase_span(
++        token: Token,
++        phrase_relations: Iterable[str] = PHRASE_RELATIONS,
++        *,
++        use_token_head: bool = False,
++) -> Span:
++    """指定時は元Tokenを主辞として既存の句探索を行う。既定の文節解釈は変えない。"""
+     def _traverse(head, _bunsetu, result):
+         queue = deque([head])
+         while queue:
+@@ -135,7 +141,7 @@
+ 
+     bunsetu = bunsetu_span(token)
+     phrase_tokens = []
+-    _traverse(bunsetu.root, bunsetu, phrase_tokens)
++    _traverse(token if use_token_head else bunsetu.root, bunsetu, phrase_tokens)
+     start = min(phrase_tokens)
+     end = max(phrase_tokens) + 1
+     return Span(token.doc, start=start, end=end, label=bunsetu.label_)

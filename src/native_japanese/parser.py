@@ -7,7 +7,7 @@ import ginza
 import spacy
 from spacy.tokens import Doc, Span
 
-from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation, Unavailable
+from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation
 
 
 def _endpoint(span: Span, text: str) -> Endpoint:
@@ -36,7 +36,7 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
     if any(not character.isspace() for character in text[cursor:]):
         raise ValueError("原文末尾の非空白文字が解析結果にありません。")
 
-    relations, unavailable = [], []
+    relations = []
     for head in ginza.bunsetu_head_tokens(doc):
         # callback元Tokenを保持し、返却phraseのrootと同一視しない。
         for dependency, dependent in ginza.sub_phrases(lambda token: token)(head):
@@ -48,24 +48,17 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             else:
                 continue
 
-            predicate_phrase = ginza.bunsetu_phrase_span(predicate)
-            noun_phrase = ginza.bunsetu_phrase_span(noun)
+            predicate_phrase = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
+            noun_phrase = ginza.bunsetu_phrase_span(noun, use_token_head=True)
             predicate_endpoint = _endpoint(predicate_phrase, text)
             noun_endpoint = _endpoint(noun_phrase, text)
-            missing = [
-                token
+            if any(
+                not phrase.start <= token.i < phrase.end
                 for token, phrase in ((predicate, predicate_phrase), (noun, noun_phrase))
-                if not phrase.start <= token.i < phrase.end
-            ]
-            if missing:
-                # 誤った句を修復せず、照会を作れない元Tokenの位置を残す。
-                unavailable.append(
-                    Unavailable(
-                        tuple((token.idx, token.idx + len(token)) for token in missing),
-                        "解析された語句に、その語句の中心となる語が含まれていません。",
-                    )
+            ):
+                raise ValueError(
+                    "解析された語句に、その語句の中心となる語が含まれていません。"
                 )
-                continue
             relations.append(
                 Relation(
                     predicate_endpoint,
@@ -82,7 +75,7 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
                     ),
                 )
             )
-    return Analysis(text, tuple(relations), tuple(unavailable))
+    return Analysis(text, tuple(relations))
 
 
 class Parser:

@@ -40,9 +40,6 @@ def test_compile_indexed_and_generalization_without_archive(setup_reference, mon
     assert (result["usages"], result["groups"], result["comparable"]) == (3, 1, 2)
     assert result["bytes"] == output.stat().st_size
     assert result["membership_bytes"] > 0
-    # 配布済みDBに保存された旧文言も、DBを更新せずに読みやすく返す。
-    with sqlite3.connect(output) as db:
-        db.execute("UPDATE groups SET reason=?", ("群内の一部名詞列は比較不能です",))
     source.unlink()
     with reference.Reference(output, assets) as runtime:
         # 直接の索引陽性には、検査時にvector資源を開く必要がない。
@@ -59,15 +56,7 @@ def test_compile_indexed_and_generalization_without_archive(setup_reference, mon
         support = runtime.assess(replace(QUERY, noun=("西",)))
         assert not support.indexed and support.score == pytest.approx(-1 / np.sqrt(2))
         assert (support.comparable, support.total) == (2, 3)
-        assert support.reason == "収録用例の一部は比較に使えません。"
-        unavailable = runtime.assess(replace(QUERY, noun=("零",)))
-        assert unavailable.score is None
-        assert unavailable.reason == (
-            support.reason + "「零」を比較するための情報が、付属の単語辞書にありません。"
-        )
-        assert runtime.connection.execute("SELECT reason FROM groups").fetchone()[0] == (
-            "群内の一部名詞列は比較不能です"
-        )
+        assert runtime.assess(replace(QUERY, noun=("零",))).score is None
 
 
 def test_every_non_noun_condition_stays_fixed(setup_reference):
@@ -83,7 +72,6 @@ def test_every_non_noun_condition_stays_fixed(setup_reference):
         ):
             support = runtime.assess(replace(QUERY, noun=("西",), **changed))
             assert not support.indexed and support.score is None and support.total == 0
-            assert "この使い方の比較に必要な用例が、辞書に収録されていません" in support.reason
 
 
 def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
@@ -107,7 +95,7 @@ def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
         assert runtime.assess(replace(QUERY, noun=("西",))).indexed
 
 
-def test_empty_and_zero_mean_are_unavailable(tmp_path, monkeypatch):
+def test_empty_and_zero_mean_add_no_generalization_support(tmp_path, monkeypatch):
     monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
     with Examples(source, writable=True):
@@ -119,12 +107,22 @@ def test_empty_and_zero_mean_are_unavailable(tmp_path, monkeypatch):
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(lines(record(), record(replace(QUERY, noun=("西",)))))
     reference.build_reference(source, output, tmp_path)
-    with sqlite3.connect(output) as db:
-        db.execute("UPDATE groups SET reason=?", ("群の平均が厳密にゼロです",))
     with reference.Reference(output, tmp_path) as runtime:
-        support = runtime.assess(replace(QUERY, noun=("北",)))
-        assert support.score is None and "ゼロ" in support.reason
-        assert "群の平均" not in support.reason
+        assert runtime.assess(replace(QUERY, noun=("北",))).score is None
+
+
+def test_group_without_vectors_keeps_indexed_usage_but_adds_no_score(tmp_path, monkeypatch):
+    monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
+    source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
+    usage = replace(QUERY, noun=("未収録",))
+    with Examples(source, writable=True) as examples:
+        examples.import_jsonl(lines(record(usage)))
+    reference.build_reference(source, output, tmp_path)
+    with reference.Reference(output, tmp_path) as runtime:
+        assert runtime.assess(usage).indexed
+        support = runtime.assess(QUERY)
+        assert not support.indexed and support.score is None
+        assert (support.comparable, support.total) == (0, 1)
 
 
 def test_failed_build_preserves_prior_output_and_never_overwrites_archive(
@@ -147,7 +145,18 @@ def test_failed_build_preserves_prior_output_and_never_overwrites_archive(
 
 
 @pytest.mark.parametrize(
-    "damage", ["identity", "nan", "dimension", "counts", "missing", "bloom", "nonfinite_reason"]
+    "damage",
+    [
+        "identity",
+        "nan",
+        "dimension",
+        "counts",
+        "missing",
+        "bloom",
+        "old_version",
+        "missing_mean",
+        "invalid_group",
+    ],
 )
 def test_corrupt_reference_is_rejected(setup_reference, damage):
     source, output, assets = setup_reference
@@ -167,11 +176,14 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
             db.execute("UPDATE groups SET comparable=total+1")
         elif damage == "missing":
             db.execute("DELETE FROM groups WHERE key=?", (group_key(QUERY),))
-        elif damage == "nonfinite_reason":
-            # 古いDBで計算異常が理由だけに保存されていても、正常な不足へ変えない。
-            db.execute(
-                "UPDATE groups SET mean=NULL, comparable=0, reason=?", ("群の平均が非有限です",)
-            )
+        elif damage == "invalid_group":
+            key = json.loads(group_key(QUERY))
+            key[1] = []
+            db.execute("UPDATE groups SET key=?", (reference.canonical(key),))
+        elif damage == "old_version":
+            db.execute("PRAGMA user_version=1")
+        elif damage == "missing_mean":
+            db.execute("UPDATE groups SET mean=NULL")
         else:
             db.execute("UPDATE membership SET payload=zeroblob(length(payload))")
     with pytest.raises(ValueError):

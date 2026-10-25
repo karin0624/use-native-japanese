@@ -30,7 +30,6 @@ class RelationAssessment:
     status: str
     score: float | None
     queries: tuple[QueryAssessment, ...]
-    reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -83,34 +82,26 @@ class Inspector:
         assessments = []
         diagnostics = []
         for relation in analysis.relations:
+            if not relation.queries:
+                raise ValueError("語の関係に照会条件がありません。解析結果を確認してください。")
             queries = []
             for query in relation.queries:
                 support = self.reference.assess(query)
+                if support.score is not None and not math.isfinite(support.score):
+                    raise ValueError("用例との比較結果に、無限大や数値でない値が含まれています。")
                 queries.append(QueryAssessment(query, support))
                 if support.indexed:
                     break
             scores = [item.support.score for item in queries if item.support.score is not None]
             score = max(scores) if scores else None
-            reasons = tuple(
-                dict.fromkeys(
-                    (
-                        *relation.unavailable_reasons,
-                        *(item.support.reason for item in queries if item.support.reason),
-                    )
-                )
-            )
             if any(item.support.indexed for item in queries):
                 status = "indexed"
-            elif score is None:
-                status = "unavailable"
-                if not reasons:
-                    reasons = ("比較に必要な語の関係を解析結果から取得できません。",)
-            elif score < self.threshold:
+            elif score is None or score < self.threshold:
                 status = "review"
                 noun = relation.argument.text if relation.argument else "語"
                 message = (
-                    f"「{noun}」と「{relation.predicate.text}」の組み合わせが不自然かもしれません。"
-                    "表現を確認してください。"
+                    f"「{noun}」と「{relation.predicate.text}」の組み合わせに合う用例が見つかりません。"
+                    "表現を見直してください。"
                 )
                 ranges = (
                     *relation.predicate.ranges,
@@ -119,7 +110,7 @@ class Inspector:
                 diagnostics.extend(Diagnostic(span, message) for span in dict.fromkeys(ranges))
             else:
                 status = "supported"
-            assessments.append(RelationAssessment(relation, status, score, tuple(queries), reasons))
+            assessments.append(RelationAssessment(relation, status, score, tuple(queries)))
         return LintResult(analysis, tuple(assessments), tuple(diagnostics))
 
     def lint_many(self, texts: Iterable[str]) -> tuple[LintResult, ...]:

@@ -18,29 +18,6 @@ createInterface({ input: process.stdin }).on("line", line => {
         range: [match.index, match.index + match[0].length],
         message: "人工fixtureの指摘", suggestions: ["ご飯を食べる"]
     })) }));
-    for (const [i, text] of texts.entries()) {
-        const unavailable = [];
-        if (text.includes("解析保留")) {
-            const start = text.indexOf("解析保留");
-            unavailable.push({ kind: "analysis", ranges: [[start, start + 4]], reason: "単語どうしの関係を解析結果から読み取れません。" });
-        }
-        if (text.includes("参照対象") && text.includes("比較する")) {
-            const noun = text.indexOf("参照対象");
-            const predicate = text.indexOf("比較する");
-            unavailable.push({ kind: "reference", ranges: [[noun, noun + 4], [predicate, predicate + 4]], reason: "用例の比較に必要なデータを利用できません。" });
-        }
-        if (unavailable.length) results[i].unavailable = unavailable;
-        if (text.includes("保留不正")) {
-            const item = { kind: "reference", ranges: [[0, 2]], reason: "比較不能" };
-            if (text.includes("種類")) item.kind = "unknown";
-            if (text.includes("理由")) item.reason = " ";
-            if (text.includes("空範囲")) item.ranges = [];
-            if (text.includes("範囲型")) item.ranges = [["0", 2]];
-            if (text.includes("サロゲート")) item.ranges = [[1, 3]];
-            if (text.includes("範囲外")) item.ranges = [[0, text.length + 1]];
-            results[i].unavailable = text.includes("配列") ? {} : [item];
-        }
-    }
     if (texts.includes("🍣範囲不正")) results[0].diagnostics = [{ range: [1, 3], message: "不正な範囲" }];
     if (texts.includes("範囲外")) results[0].diagnostics = [{ range: [0, 100], message: "不正な範囲" }];
     if (texts.includes("encoding不正")) results[0].offsetEncoding = "unicode-code-points";

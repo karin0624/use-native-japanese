@@ -21,20 +21,19 @@ def vector_model():
 
 def test_lemmas_are_not_reparsed_and_components_have_equal_norm():
     vectors = vector_model()
-    result, reason = vectors.compose(("東", "北"))
-    assert reason is None and result[:2] == pytest.approx((1 / np.sqrt(2),) * 2)
-    assert vectors.compose(("a/+ b",))[0][0] == pytest.approx(1)
-    assert vectors.compose(("東", "未収録"))[0] is None
+    result = vectors.compose(("東", "北"))
+    assert result[:2] == pytest.approx((1 / np.sqrt(2),) * 2)
+    assert vectors.compose(("a/+ b",))[0] == pytest.approx(1)
+    assert vectors.compose(("東", "未収録")) is None
 
 
 def test_distinct_nouns_get_equal_votes_and_fixed_direction():
     vectors = vector_model()
     # distinct化は正本が行う。ここへは逐次入力を渡し、比較不能を分母へ含める。
-    mean, comparable, total, reason = group_mean(iter([("東",), ("北",), ("零",)]), vectors)
+    mean, comparable, total = group_mean(iter([("東",), ("北",), ("零",)]), vectors)
     assert (comparable, total) == (2, 3)
-    assert reason
     assert mean[:2] == pytest.approx((0.5, 0.5))
-    x, _ = vectors.compose(("東",))
+    x = vectors.compose(("東",))
     assert direction(x, mean) == pytest.approx(1 / np.sqrt(2))
     assert float(x @ mean) == pytest.approx(0.5)
 
@@ -43,11 +42,9 @@ def test_empty_zero_nonfinite_and_singleton_direction():
     vectors = vector_model()
     assert group_mean(iter(()), vectors)[:3] == (None, 0, 0)
     for noun in ("零", "未収録"):
-        assert vectors.compose((noun,))[0] is None
-    missing = vectors.compose(("東", "未収録", "零", "未収録"))[1]
-    assert "「未収録」" in missing and "「零」" in missing and "「東」" not in missing
-    assert missing.count("「未収録」") == 1
-    assert vectors.compose(("東", "西"))[1] != missing
+        assert vectors.compose((noun,)) is None
+    assert vectors.compose(("東", "未収録", "零", "未収録")) is None
+    assert vectors.compose(("東", "西")) is None
     with pytest.raises(ValueError, match="語がありません"):
         vectors.compose(())
     with pytest.raises(ValueError, match="語が空"):
@@ -56,7 +53,7 @@ def test_empty_zero_nonfinite_and_singleton_direction():
         vectors.compose(("非有限",))
     with pytest.raises(ValueError):
         group_mean(iter([("東",), ("非有限",)]), vectors)
-    x, _ = vectors.compose(("東",))
+    x = vectors.compose(("東",))
     assert direction(x, x) == pytest.approx(1)
     assert direction(x, np.zeros(300)) is None
     assert direction(np.zeros(300), x) is None
@@ -65,8 +62,8 @@ def test_empty_zero_nonfinite_and_singleton_direction():
     with pytest.raises(ValueError):
         direction(x[:2], x)
     assert direction(x, x * 1e-300) == pytest.approx(1)
-    mean, count, total, reason = group_mean(iter([("東",), ("西",)]), vectors)
-    assert count == total == 2 and reason and direction(x, mean) is None
+    mean, count, total = group_mean(iter([("東",), ("西",)]), vectors)
+    assert count == total == 2 and direction(x, mean) is None
 
 
 def test_fasttext_unknown_words_keep_subword_vectors_and_report_zero_coverage():
@@ -74,14 +71,14 @@ def test_fasttext_unknown_words_keep_subword_vectors_and_report_zero_coverage():
     model.vectors_ngrams = np.ones((64, 300), dtype=np.float32)
     vectors = Vectors(model)
     assert not model.has_index_for("未知の語句")
-    result, reason = vectors.compose(("未知の語句",))
-    assert reason is None and np.linalg.norm(result) == pytest.approx(1)
+    result = vectors.compose(("未知の語句",))
+    assert np.linalg.norm(result) == pytest.approx(1)
     # 二文字語からは、このモデルが使う長さ5の文字ngramを作れない。
-    result, reason = vectors.compose(("短語",))
-    assert result is None and "「短語」" in reason
+    result = vectors.compose(("短語",))
+    assert result is None
     model.vectors_ngrams[:] = 0
-    result, reason = Vectors(model).compose(("未知の語句",))
-    assert result is None and "「未知の語句」" in reason
+    result = Vectors(model).compose(("未知の語句",))
+    assert result is None
 
 
 @pytest.mark.parametrize("method", ["get_vector", "get_mean_vector"])

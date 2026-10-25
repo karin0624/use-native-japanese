@@ -73,25 +73,7 @@ function splitsSurrogate(text, index) {
         /[\uDC00-\uDFFF]/u.test(text[index]);
 }
 
-const documentResults = new WeakMap();
-
-function analyzeDocument(document, nodes, config) {
-    let requests = documentResults.get(document);
-    if (!requests) documentResults.set(document, requests = new Map());
-    const key = JSON.stringify(config);
-    if (!requests.has(key)) {
-        requests.set(key, (async () => {
-            const codeSpans = inlineCodeSpans(document.raw);
-            const segments = nodes.flatMap(node => plainSegments(node, codeSpans));
-            const results = segments.length
-                ? await getWorker(config).request(segments.map(segment => segment.text)) : [];
-            return { segments, results };
-        })());
-    }
-    return requests.get(key);
-}
-
-function rule(kind, context, options = {}) {
+function usage(context, options = {}) {
     const config = configuration(options);
     const nodes = [];
     const { Syntax, report, RuleError, locator } = context;
@@ -101,8 +83,10 @@ function rule(kind, context, options = {}) {
         [Syntax.Header]: collect,
         async [`${Syntax.Document}:exit`](document) {
             if (!nodes.length) return;
-            // Documentは同じlint内のruleで共有される。本文の文字列を長期保存しない。
-            const { segments, results } = await analyzeDocument(document, nodes, config);
+            const codeSpans = inlineCodeSpans(document.raw);
+            const segments = nodes.flatMap(node => plainSegments(node, codeSpans));
+            const results = segments.length
+                ? await getWorker(config).request(segments.map(segment => segment.text)) : [];
             for (let i = 0; i < results.length; i++) {
                 const segment = segments[i];
                 if (results[i]?.offsetEncoding !== "utf-16" || !Array.isArray(results[i]?.diagnostics)) {
@@ -122,7 +106,7 @@ function rule(kind, context, options = {}) {
                     }
                     report(segment.node, new RuleError(message, { padding: locator.range([start, end]) }));
                 };
-                for (const diagnostic of kind === "usage" ? results[i].diagnostics : []) {
+                for (const diagnostic of results[i].diagnostics) {
                     if (typeof diagnostic?.message !== "string" || !diagnostic.message.trim()) {
                         throw new Error("native-japanese: 指摘の説明文（message）が空か、文字列ではありません。");
                     }
@@ -135,18 +119,6 @@ function rule(kind, context, options = {}) {
                         ? ` 訂正候補: ${diagnostic.suggestions.map(value => JSON.stringify(value)).join("、")}` : "";
                     reportRange(diagnostic.range, diagnostic.message + suggestions);
                 }
-                const unavailable = kind === "coverage" ? results[i].unavailable : undefined;
-                if (unavailable !== undefined && !Array.isArray(unavailable)) {
-                    throw new Error("native-japanese: 判定できない箇所を示すunavailableには配列が必要です。");
-                }
-                for (const item of unavailable ?? []) {
-                    if (!["analysis", "reference"].includes(item?.kind) ||
-                        typeof item.reason !== "string" || !item.reason.trim() ||
-                        !Array.isArray(item.ranges) || !item.ranges.length) {
-                        throw new Error("native-japanese: unavailableのkind（analysisまたはreference）、reason（空でない文字列）、ranges（1件以上の範囲の配列）を読み取れません。");
-                    }
-                    for (const range of item.ranges) reportRange(range, `判定できません。${item.reason}`);
-                }
             }
         }
     };
@@ -154,11 +126,9 @@ function rule(kind, context, options = {}) {
 
 export default {
     rules: {
-        usage: (context, options) => rule("usage", context, options),
-        coverage: (context, options) => rule("coverage", context, options)
+        usage
     },
     rulesConfig: {
-        usage: { severity: "error" },
-        coverage: { severity: "warning" }
+        usage: { severity: "error" }
     }
 };

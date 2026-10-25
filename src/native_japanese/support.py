@@ -12,7 +12,6 @@ from scipy.linalg import norm
 class Support:
     indexed: bool
     score: float | None
-    reason: str | None
     evidence: tuple[dict, ...] = ()
     comparable: int = 0
     total: int = 0
@@ -41,11 +40,11 @@ class Vectors:
         if noun not in self.model:
             return None
         vector = _checked_vector(
-            self.model.get_vector(noun), self.model.vector_size, f"単語辞書の「{noun}」の値"
+            self.model.get_vector(noun), self.model.vector_size, f"「{noun}」の比較用データ"
         )
         magnitude = float(norm(vector))
         if not math.isfinite(magnitude):
-            raise ValueError(f"単語辞書の「{noun}」の値を正規化できません。")
+            raise ValueError(f"「{noun}」の比較用データを正規化できません。")
         if magnitude == 0:
             return None
         return vector / magnitude
@@ -54,12 +53,8 @@ class Vectors:
         if not components:
             raise ValueError("比較する語がありません。解析結果を確認してください。")
         vectors = [self.component(lemma) for lemma in components]
-        missing = dict.fromkeys(
-            lemma for lemma, vector in zip(components, vectors) if vector is None
-        )
-        if missing:
-            words = "、".join(f"「{lemma}」" for lemma in missing)
-            return None, f"{words}を比較するための情報が、付属の単語辞書にありません。"
+        if any(vector is None for vector in vectors):
+            return None
         vector = _checked_vector(
             self.model.get_mean_vector(
                 vectors, pre_normalize=False, post_normalize=True, ignore_missing=False
@@ -71,8 +66,8 @@ class Vectors:
         if not math.isfinite(magnitude):
             raise ValueError("語句を比較するための計算結果を正規化できません。")
         if magnitude == 0:
-            return None, "語を組み合わせた計算結果がゼロになり、用例と比較できません。"
-        return vector / magnitude, None
+            return None
+        return vector / magnitude
 
 
 def group_mean(nouns, vectors):
@@ -81,19 +76,15 @@ def group_mean(nouns, vectors):
     comparable = total = 0
     for noun in nouns:
         total += 1
-        vector, _ = vectors.compose(noun)
+        vector = vectors.compose(noun)
         if vector is not None:
             comparable += 1
             mean += (vector - mean) / comparable
     if not comparable:
-        reason = "収録用例を比較に使えません。" if total else "比較に使う用例がありません。"
-        return None, 0, total, reason
+        return None, 0, total
     if not np.isfinite(mean).all():
         raise ValueError("用例を比較するための計算結果に、無限大や数値でない値が含まれています。")
-    if norm(mean) == 0:
-        return mean, comparable, total, "用例を比較するための計算結果がゼロになりました。"
-    reason = "収録用例の一部は比較に使えません。" if comparable < total else None
-    return mean, comparable, total, reason
+    return mean, comparable, total
 
 
 def direction(x, mean):

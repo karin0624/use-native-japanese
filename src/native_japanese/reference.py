@@ -17,17 +17,8 @@ from .models import NORMALIZATION_IDENTITY, PARSER_VERSIONS, Query
 from .support import Support, Vectors, direction, group_mean
 
 APPLICATION_ID = 0x4E4A5246
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DIMENSION = 300
-
-# 配布済みDBの理由だけを読み替える。保存データと比較条件は変更しない。
-_LEGACY_GROUP_REASONS = {
-    "比較可能な名詞列がありません": "収録用例を比較に使えません。",
-    "収録された用例のデータを比較に使えません。": "収録用例を比較に使えません。",
-    "群の平均が厳密にゼロです": "用例を比較するための計算結果がゼロになりました。",
-    "群内の一部名詞列は比較不能です": "収録用例の一部は比較に使えません。",
-    "一部の用例は比較に使えません。": "収録用例の一部は比較に使えません。",
-}
 
 
 def vector_identity():
@@ -76,7 +67,7 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
                 CREATE TABLE membership (id INTEGER PRIMARY KEY CHECK(id=1), payload BLOB NOT NULL);
                 CREATE TABLE groups (
                     key TEXT PRIMARY KEY, mean BLOB, comparable INTEGER NOT NULL,
-                    total INTEGER NOT NULL, reason TEXT
+                    total INTEGER NOT NULL
                 ) WITHOUT ROWID;
             """)
             groups = comparable = 0
@@ -87,11 +78,9 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
                         builder.add(query_key(query))
                         yield query.noun
 
-                mean, count, total, reason = group_mean(nouns(), vectors)
+                mean, count, total = group_mean(nouns(), vectors)
                 blob = mean.astype("<f8").tobytes() if mean is not None else None
-                db.execute(
-                    "INSERT INTO groups VALUES (?,?,?,?,?)", (key, blob, count, total, reason)
-                )
+                db.execute("INSERT INTO groups VALUES (?,?,?,?)", (key, blob, count, total))
                 groups += 1
                 comparable += count
             raw, manifest = builder.finish()
@@ -184,13 +173,21 @@ class Reference:
         raw = self.connection.execute("SELECT payload FROM membership WHERE id=1").fetchone()[0]
         self.membership = membership.restore(raw, manifest)
         groups = total = comparable = 0
-        for key, mean, count, size, reason in self.connection.execute("SELECT * FROM groups"):
-            self._decode_group(mean, count, size, reason)
+        for key, mean, count, size in self.connection.execute("SELECT * FROM groups"):
+            self._decode_group(mean, count, size)
             values = json.loads(key)
             if (
                 type(values) is not list
                 or len(values) != 6
                 or values[0] != NORMALIZATION_IDENTITY
+                or type(values[1]) is not list
+                or not values[1]
+                or any(type(lemma) is not str or not lemma for lemma in values[1])
+                or values[2] not in ("VERB", "ADJ")
+                or type(values[3]) is not str
+                or not values[3].strip()
+                or values[4] not in ("NOUN", "PROPN")
+                or values[5] not in ("head", "dependent")
                 or canonical(values) != key
             ):
                 raise ValueError(
@@ -208,22 +205,16 @@ class Reference:
         self.identity = identity
 
     @staticmethod
-    def _decode_group(blob, comparable, total, reason):
-        if reason in (
-            "群の平均が非有限です",
-            "用例を比較するための計算結果に、無限大や数値でない値が含まれています。",
-        ):
-            raise ValueError("参照DBに用例の計算異常が記録されています。参照DBを確認してください。")
+    def _decode_group(blob, comparable, total):
         if (
             type(comparable) is not int
             or type(total) is not int
             or not 0 <= comparable <= total
             or total == 0
-            or (reason is not None and (not isinstance(reason, str) or not reason))
         ):
-            raise ValueError("保存された用例のグループの件数または比較できない理由が不正です。")
+            raise ValueError("保存された用例のグループの件数が不正です。")
         if blob is None:
-            if comparable != 0 or reason is None:
+            if comparable != 0:
                 raise ValueError("用例の平均データの有無と、比較できる用例数が矛盾しています。")
             return None
         if type(blob) is not bytes or len(blob) != DIMENSION * 8 or comparable == 0:
@@ -232,10 +223,6 @@ class Reference:
         if not np.isfinite(mean).all():
             raise ValueError(
                 "保存された用例の平均ベクトルに、無限大や数値でない値が含まれています。"
-            )
-        if not np.any(mean) and reason is None:
-            raise ValueError(
-                "用例の平均ベクトルがゼロですが、比較できない理由が記録されていません。"
             )
         return mean
 
@@ -258,24 +245,20 @@ class Reference:
             },
         )
         if membership.contains(self.membership, query_key(query)):
-            return Support(True, None, None, evidence)
+            return Support(True, None, evidence)
         row = self.connection.execute(
-            "SELECT mean,comparable,total,reason FROM groups WHERE key=?", (group_key(query),)
+            "SELECT mean,comparable,total FROM groups WHERE key=?", (group_key(query),)
         ).fetchone()
         if row is None:
-            return Support(
-                False, None, "この使い方の比較に必要な用例が、辞書に収録されていません。", evidence
-            )
-        blob, comparable, total, reason = row
+            return Support(False, None, evidence)
+        blob, comparable, total = row
         mean = self._decode_group(*row)
-        reason = _LEGACY_GROUP_REASONS.get(reason, reason)
         if mean is None or not np.any(mean):
-            return Support(False, None, reason, evidence, comparable, total)
+            return Support(False, None, evidence, comparable, total)
         if self._vectors is None:
             self._vectors = Vectors(resources.load_fixed_vector(self.assets_dir))
-        x, unavailable = self._vectors.compose(query.noun)
+            if self._vectors.model.vector_size != DIMENSION:
+                raise ValueError("固定の単語ベクトルの次元数が一致しません。")
+        x = self._vectors.compose(query.noun)
         score = direction(x, mean) if x is not None else None
-        reasons = [value for value in (reason, unavailable) if value]
-        if score is None and unavailable is None:
-            reasons.append("用例との比較結果を計算できません。")
-        return Support(False, score, "".join(reasons) or None, evidence, comparable, total)
+        return Support(False, score, evidence, comparable, total)
