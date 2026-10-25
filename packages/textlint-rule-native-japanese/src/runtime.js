@@ -87,7 +87,7 @@ async function prepare() {
     const hash = createHash("sha256").update(`${PYTHON_VERSION}:uv0.12.0:${process.platform}:${process.arch}`);
     for (const file of ["pyproject.toml", "uv.lock"]) hash.update(await readFile(join(backend, file)));
     const cache = envPaths("native-japanese", { suffix: "" }).cache;
-    const environment = join(cache, "environments", hash.digest("hex"));
+    const environment = join(cache, "environments", hash.digest("base64url"));
     await mkdir(cache, { recursive: true });
     // npm側の固定optional binaryを直接使い、wrapperの孫processを残さない。
     const require = createRequire(import.meta.url);
