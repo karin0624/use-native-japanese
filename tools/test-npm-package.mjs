@@ -157,7 +157,8 @@ try {
     const python = path.join(environments[0], process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
     const pythonInfo = jsonOutput(await run(python, ["-E", "-c", "import json,sys; print(json.dumps({'version':sys.version.split()[0],'base':sys.base_prefix,'prefix':sys.prefix}))"], { env }));
     assert.equal(pythonInfo.version, "3.12.13");
-    const baseRelative = path.relative(home, pythonInfo.base);
+    // macOSの/varと/private/varなど、同じ領域の別名を実パスへ揃える。
+    const baseRelative = path.relative(await realpath(home), await realpath(pythonInfo.base));
     assert.ok(!baseRelative.startsWith("..") && !path.isAbsolute(baseRelative));
     assert.ok(baseRelative.split(path.sep).includes("python"), "PATH上のPythonではなく専用のmanaged Pythonを使います。");
 

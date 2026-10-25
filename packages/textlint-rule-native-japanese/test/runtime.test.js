@@ -24,7 +24,15 @@ test("command省略時は並列要求の準備を共有し、準備後から応�
             return { command: [process.execPath, fixture, "worker.log"], cwd: directory };
         }
     });
-    t.after(async () => { worker.close(); await rm(directory, { recursive: true, force: true }); });
+    t.after(async () => {
+        const child = worker.child;
+        const closed = child && once(child, "close");
+        worker.close();
+        // Windowsではcwdのfile lockが解放されるまで一時領域を消せない。
+        child?.ref();
+        await closed;
+        await rm(directory, { recursive: true, force: true });
+    });
     const results = await Promise.all([worker.request(["雲を食べる"]), worker.request(["雲を食べる"])]);
     assert.equal(prepared, 1);
     assert.deepEqual(results.map(result => result[0].diagnostics.length), [1, 1]);
@@ -39,7 +47,14 @@ test("自動準備の失敗を呼出元へ返し、次の要求で再試行す�
             return { command: [process.execPath, fixture, join(directory, "worker.log")] };
         }
     });
-    t.after(async () => { worker.close(); await rm(directory, { recursive: true, force: true }); });
+    t.after(async () => {
+        const child = worker.child;
+        const closed = child && once(child, "close");
+        worker.close();
+        child?.ref();
+        await closed;
+        await rm(directory, { recursive: true, force: true });
+    });
     const first = await Promise.allSettled([worker.request(["文"]), worker.request(["文"])]);
     assert.ok(first.every(result => result.status === "rejected" && /人工的な準備失敗/.test(result.reason.message)));
     assert.equal((await worker.request(["雲を食べる"]))[0].diagnostics.length, 1);
