@@ -82,7 +82,7 @@ def test_phrase_excluding_its_source_token_is_unavailable():
     result = adapt_doc(doc, doc.text)
     assert len(result.unavailable) == 1
     assert result.unavailable[0].ranges == ((2, 9),)
-    assert "主辞トークンを含みません" in result.unavailable[0].reason
+    assert "中心となる語が含まれていません" in result.unavailable[0].reason
     assert all(query.dependency != "obj" for row in result.relations for query in row.queries)
     assert any(query.dependency == "obl" for row in result.relations for query in row.queries)
 
@@ -112,5 +112,5 @@ def test_different_dependency_version_is_rejected(monkeypatch):
         "native_japanese.parser.version",
         lambda package: "異なる版" if package == "spacy" else PARSER_VERSIONS[package],
     )
-    with pytest.raises(RuntimeError, match="解析契約と異なる版.*spacy"):
+    with pytest.raises(RuntimeError, match="解析に必要なバージョンと異なります.*spacy"):
         Parser()

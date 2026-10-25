@@ -35,9 +35,10 @@ def sha256(path):
 
 def check_asset(path, item):
     require(
-        path.is_file() and path.stat().st_size == item["bytes"], f"資源size不一致: {item['id']}"
+        path.is_file() and path.stat().st_size == item["bytes"],
+        f"資源ファイルの有無またはサイズを確認してください: {item['id']}",
     )
-    require(sha256(path) == item["sha256"], f"資源SHA-256不一致: {item['id']}")
+    require(sha256(path) == item["sha256"], f"資源ファイルのSHA-256が一致しません: {item['id']}")
 
 
 def save(path, value):
@@ -49,7 +50,7 @@ def save(path, value):
 
 def check_versions(expected):
     for name, pin in expected.items():
-        require(version(name) == pin, f"依存版不一致: {name}")
+        require(version(name) == pin, f"依存ライブラリのバージョンが一致しません: {name}")
 
 
 def load_fixed_vector(assets_dir: Path) -> CompressedFastTextKeyedVectors:
@@ -60,7 +61,7 @@ def load_fixed_vector(assets_dir: Path) -> CompressedFastTextKeyedVectors:
         payload = stream.read(item["bytes"] + 1)
     require(
         len(payload) == item["bytes"] and hashlib.sha256(payload).hexdigest() == item["sha256"],
-        "許可した固定vectorモデルではありません",
+        "所定の固定単語ベクトルモデルではありません。",
     )
     check_versions(data["vector_python"])
     from compress_fasttext.models import CompressedFastTextKeyedVectors
@@ -69,5 +70,5 @@ def load_fixed_vector(assets_dir: Path) -> CompressedFastTextKeyedVectors:
         snapshot = Path(directory) / "fasttext-ja-mini"
         snapshot.write_bytes(payload)
         model = CompressedFastTextKeyedVectors.load(str(snapshot))
-    require(model.vector_size == 300, "固定vectorの次元不一致")
+    require(model.vector_size == 300, "固定の単語ベクトルの次元数が一致しません。")
     return model

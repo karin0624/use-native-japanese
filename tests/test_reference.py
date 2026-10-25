@@ -40,6 +40,9 @@ def test_compile_indexed_and_generalization_without_archive(setup_reference, mon
     assert (result["usages"], result["groups"], result["comparable"]) == (3, 1, 2)
     assert result["bytes"] == output.stat().st_size
     assert result["membership_bytes"] > 0
+    # 配布済みDBに保存された旧文言も、DBを更新せずに読みやすく返す。
+    with sqlite3.connect(output) as db:
+        db.execute("UPDATE groups SET reason=?", ("群内の一部名詞列は比較不能です",))
     source.unlink()
     with reference.Reference(output, assets) as runtime:
         # 直接の索引陽性には、検査時にvector資源を開く必要がない。
@@ -56,8 +59,15 @@ def test_compile_indexed_and_generalization_without_archive(setup_reference, mon
         support = runtime.assess(replace(QUERY, noun=("西",)))
         assert not support.indexed and support.score == pytest.approx(-1 / np.sqrt(2))
         assert (support.comparable, support.total) == (2, 3)
-        assert support.reason
-        assert runtime.assess(replace(QUERY, noun=("零",))).score is None
+        assert support.reason == "一部の用例は比較に使えません。"
+        unavailable = runtime.assess(replace(QUERY, noun=("零",)))
+        assert unavailable.score is None
+        assert unavailable.reason == (
+            support.reason + "この語句を用例と比較するためのデータを取得できません。"
+        )
+        assert runtime.connection.execute("SELECT reason FROM groups").fetchone()[0] == (
+            "群内の一部名詞列は比較不能です"
+        )
 
 
 def test_every_non_noun_condition_stays_fixed(setup_reference):
@@ -73,7 +83,7 @@ def test_every_non_noun_condition_stays_fixed(setup_reference):
         ):
             support = runtime.assess(replace(QUERY, noun=("西",), **changed))
             assert not support.indexed and support.score is None and support.total == 0
-            assert "群がありません" in support.reason
+            assert "比較に使える用例が収録されていません" in support.reason
 
 
 def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
@@ -109,9 +119,12 @@ def test_empty_and_zero_mean_are_unavailable(tmp_path, monkeypatch):
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(lines(record(), record(replace(QUERY, noun=("西",)))))
     reference.build_reference(source, output, tmp_path)
+    with sqlite3.connect(output) as db:
+        db.execute("UPDATE groups SET reason=?", ("群の平均が厳密にゼロです",))
     with reference.Reference(output, tmp_path) as runtime:
         support = runtime.assess(replace(QUERY, noun=("北",)))
         assert support.score is None and "ゼロ" in support.reason
+        assert "群の平均" not in support.reason
 
 
 def test_failed_build_preserves_prior_output_and_never_overwrites_archive(

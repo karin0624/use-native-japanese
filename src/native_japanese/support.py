@@ -41,10 +41,10 @@ class Vectors:
 
     def compose(self, components):
         if not components:
-            return None, "構成語が空です"
+            return None, "比較する語がありません。"
         vectors = [self.component(lemma) for lemma in components]
         if any(vector is None for vector in vectors):
-            return None, "成分vectorが取得できません"
+            return None, "この語句を用例と比較するためのデータを取得できません。"
         try:
             vector = np.asarray(
                 self.model.get_mean_vector(
@@ -53,12 +53,12 @@ class Vectors:
                 dtype=np.float64,
             )
         except (KeyError, ValueError, TypeError):
-            return None, "合成vectorが取得できません"
+            return None, "この語句を用例と比較するためのデータを取得できません。"
         if vector.shape != (self.model.vector_size,) or not np.isfinite(vector).all():
-            return None, "合成vectorの形状が不正または非有限です"
+            return None, "語句を比較するための計算結果を利用できません。"
         magnitude = float(norm(vector))
         if not math.isfinite(magnitude) or magnitude == 0:
-            return None, "合成vectorが非有限またはゼロです"
+            return None, "語句を比較するための計算で、比較に使える値が得られませんでした。"
         return vector / magnitude, None
 
 
@@ -73,12 +73,17 @@ def group_mean(nouns, vectors):
             comparable += 1
             mean += (vector - mean) / comparable
     if not comparable:
-        return None, 0, total, "比較可能な名詞列がありません"
+        return None, 0, total, "収録された用例のデータを比較に使えません。"
     if not np.isfinite(mean).all():
-        return None, comparable, total, "群の平均が非有限です"
+        return (
+            None,
+            comparable,
+            total,
+            "用例を比較するための計算結果に、無限大や数値でない値が含まれています。",
+        )
     if norm(mean) == 0:
-        return mean, comparable, total, "群の平均が厳密にゼロです"
-    reason = "群内の一部名詞列は比較不能です" if comparable < total else None
+        return mean, comparable, total, "用例を比較するための計算結果がゼロになりました。"
+    reason = "一部の用例は比較に使えません。" if comparable < total else None
     return mean, comparable, total, reason
 
 

@@ -53,7 +53,7 @@ native-japanese serve --reference "$REFERENCE" --assets-dir "$ASSETS"
 
 stdinへ`{"id":"1","texts":["一つ目の本文。","二つ目の本文。"]}`を1行ずつ送ると、同じ`id`と同じ順序の`results`を返します。`lint`・`serve`の結果には`offsetEncoding: "utf-16"`、`diagnostics`、`relations`、`unavailable`が含まれ、全範囲をUTF-16へ変換します。要求単位の失敗は`error.message`で返し、後続要求を受け付けます。
 
-`unavailable`は`kind`（`analysis`または`reference`）、理由`reason`、端点範囲配列`ranges`を持ちます。textlintはこれを「判定保留（解析情報）」「判定保留（比較不能）」として誤用指摘と区別します。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
+`unavailable`は`kind`（`analysis`または`reference`）、理由`reason`、端点範囲配列`ranges`を持ちます。textlintは「判定できません。」に理由を続けて表示します。これは文章に誤りがあるという指摘ではありません。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
 
 ## 出典付き用例を追加する
 

@@ -13,7 +13,7 @@ from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation, Unavai
 def _endpoint(span: Span, text: str) -> Endpoint:
     start, end = span.start_char, span.end_char
     if not 0 <= start < end <= len(text) or text[start:end] != span.text:
-        raise ValueError("公開された文節主辞句の表層が原文位置と一致しません。")
+        raise ValueError("解析された語句が、原文の対応する位置の文字列と一致しません。")
     return Endpoint(span.text, ((start, end),))
 
 
@@ -29,7 +29,9 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             or text[token.idx : end] != token.text
             or any(not character.isspace() for character in text[cursor : token.idx])
         ):
-            raise ValueError("公開tokenが原文の非空白文字と位置を保持していません。")
+            raise ValueError(
+                "解析された語の文字列や位置が原文と一致しないか、空白以外の文字が抜けています。"
+            )
         cursor = end
     if any(not character.isspace() for character in text[cursor:]):
         raise ValueError("原文末尾の非空白文字が解析結果にありません。")
@@ -60,7 +62,7 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
                 unavailable.append(
                     Unavailable(
                         tuple((token.idx, token.idx + len(token)) for token in missing),
-                        "公開された文節主辞句が元の主辞トークンを含みません。",
+                        "解析された語句に、その語句の中心となる語が含まれていません。",
                     )
                 )
                 continue
@@ -94,7 +96,7 @@ class Parser:
                 raise RuntimeError(f"解析に必要な{package}=={expected}がありません。") from error
             if installed != expected:
                 raise RuntimeError(
-                    f"解析契約と異なる版です: {package}=={installed}（必要: {expected}）。"
+                    f"解析に必要なバージョンと異なります: {package}=={installed}（必要: {expected}）。"
                 )
         self._nlp = spacy.load("ja_ginza", exclude=["ner"])
 

@@ -86,7 +86,9 @@ def test_support_threshold_unavailable_and_discontinuous_utf16_ranges(monkeypatc
             {"kind": "analysis", "ranges": [[0, 2]], "reason": "公開情報不足"}
         ]
         assert "analysis" not in encoded
-        assert "組合せを確認" in encoded["diagnostics"][0]["message"]
+        assert encoded["diagnostics"][0]["message"] == (
+            "「重複」と「畳む」の組み合わせが不自然かもしれません。表現を確認してください。"
+        )
     with inspector(monkeypatch, assessments={QUERY: Support(False, None, "比較不能")}) as instance:
         result = instance.lint(TEXT)
         assert result.diagnostics == ()
@@ -103,10 +105,10 @@ def test_support_threshold_unavailable_and_discontinuous_utf16_ranges(monkeypatc
 @pytest.mark.parametrize(
     ("relation", "reason"),
     [
-        (replace(RELATION, queries=()), "比較可能な照会がありません。"),
+        (replace(RELATION, queries=()), "比較に必要な語の関係を解析結果から取得できません。"),
         (
             replace(RELATION, unavailable_reasons=("公開項の原文位置がありません。",)),
-            "公開項の原文位置がありません。；比較不能",
+            "公開項の原文位置がありません。比較不能",
         ),
     ],
 )

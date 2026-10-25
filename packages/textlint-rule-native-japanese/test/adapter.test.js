@@ -68,9 +68,9 @@ test("解析情報と比較不能の保留を誤用指摘と区別し、絵文�
     const text = "🍣 `解析保留`。`参照対象`を十分離して**比較する**。雲を食べる。";
     const { messages } = await linter.lintText(text, "文書.md");
     const expected = [
-        ["解析保留", "判定保留（解析情報）: 公開された格・項の関係がありません。"],
-        ["参照対象", "判定保留（比較不能）: 群の重心が厳密にゼロです"],
-        ["比較する", "判定保留（比較不能）: 群の重心が厳密にゼロです"]
+        ["解析保留", "判定できません。単語どうしの関係を解析結果から読み取れません。"],
+        ["参照対象", "判定できません。用例の比較に必要なデータを利用できません。"],
+        ["比較する", "判定できません。用例の比較に必要なデータを利用できません。"]
     ];
     assert.equal(messages.length, 4);
     for (const [word, message] of expected) {
@@ -114,7 +114,7 @@ test("codeのAST・原文・tokenが一致しない場合は未検査にせず�
             { command: [process.execPath] });
         listeners.Paragraph({ type: "Paragraph", raw: text, range: [0, text.length],
             children: [{ type: "Code", raw: "`Pod`", value: "Pod", range: [0, 5], ...change }] });
-        await assert.rejects(listeners["Document:exit"]({ raw: text }), /inline codeのASTと原文tokenが一致/);
+        await assert.rejects(listeners["Document:exit"]({ raw: text }), /インラインコードの解析結果が原文と一致/);
     }
 });
 

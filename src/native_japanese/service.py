@@ -50,7 +50,9 @@ class Inspector:
         threshold: float = 0.35,
     ):
         if not math.isfinite(threshold) or not -1 <= threshold <= 1:
-            raise ValueError("thresholdには有限の-1以上1以下の数を指定してください。")
+            raise ValueError(
+                "thresholdには-1以上1以下の数値を指定してください。NaNや無限大は使えません。"
+            )
         self.threshold = threshold
         self._stack = ExitStack()
         try:
@@ -102,13 +104,13 @@ class Inspector:
             elif score is None:
                 status = "unavailable"
                 if not reasons:
-                    reasons = ("比較可能な照会がありません。",)
+                    reasons = ("比較に必要な語の関係を解析結果から取得できません。",)
             elif score < self.threshold:
                 status = "review"
-                noun = relation.argument.text if relation.argument else "項"
+                noun = relation.argument.text if relation.argument else "語"
                 message = (
-                    f"「{noun}」と「{relation.predicate.text}」の組合せを確認してください。"
-                    "参照索引に一致せず、比較できる用例群からの支持が低い状態です。"
+                    f"「{noun}」と「{relation.predicate.text}」の組み合わせが不自然かもしれません。"
+                    "表現を確認してください。"
                 )
                 ranges = (
                     *relation.predicate.ranges,

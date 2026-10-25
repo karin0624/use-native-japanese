@@ -35,9 +35,11 @@ def validate_record(record: object) -> dict:
     if not isinstance(record, dict) or set(record) != FIELDS:
         raise ValueError("用例の項目が所定のJSONL形式と一致しません。")
     if type(record["schema_version"]) is not int or record["schema_version"] != SCHEMA_VERSION:
-        raise ValueError("対応していない用例のschema_versionです。")
+        raise ValueError("用例のschema_versionが対応するバージョンと一致しません。")
     if record["normalization_identity"] != NORMALIZATION_IDENTITY:
-        raise ValueError("用例の正規化契約が一致しません。")
+        raise ValueError(
+            "用例を作成したときの設定（normalization_identity）が、この検査器に対応していません。"
+        )
     for key in ("predicate", "noun"):
         value = record[key]
         if (
@@ -45,7 +47,9 @@ def validate_record(record: object) -> dict:
             or not value
             or any(not isinstance(item, str) or not item for item in value)
         ):
-            raise ValueError("predicateとnounには空でないlemma配列が必要です。")
+            raise ValueError(
+                "predicateとnounには、語の基本形を空でない文字列の配列で指定してください。"
+            )
     for key in (*SOURCE_FIELDS, "predicate_type", "dependency", "noun_type", "noun_role"):
         if not isinstance(record[key], str) or not record[key].strip():
             raise ValueError("用例のラベルと出典には空でない文字列が必要です。")
@@ -54,7 +58,9 @@ def validate_record(record: object) -> dict:
         or record["noun_type"] not in ("NOUN", "PROPN")
         or record["noun_role"] not in ("head", "dependent")
     ):
-        raise ValueError("用例の品詞または元方向が契約と一致しません。")
+        raise ValueError(
+            "用例の品詞（predicate_type、noun_type）または係り受けの向き（noun_role）が、対応する値と一致しません。"
+        )
     return record
 
 
@@ -131,7 +137,7 @@ class Examples:
             self.connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
             self.connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         elif application != APPLICATION_ID or version != SCHEMA_VERSION:
-            raise ValueError("用例DBの種類または版が一致しません。")
+            raise ValueError("用例DBの種類またはバージョンが一致しません。")
         self.connection.execute("SELECT key,group_key,noun FROM usages LIMIT 0")
         self.connection.execute(
             "SELECT usage_key,source_id,observation_id,source_url FROM observations LIMIT 0"
@@ -188,7 +194,9 @@ class Examples:
         for row in self.connection.execute("SELECT key FROM usages ORDER BY group_key,noun"):
             identity, *values = json.loads(row[0])
             if identity != NORMALIZATION_IDENTITY or len(values) != len(QUERY_FIELDS):
-                raise ValueError("正本の照会契約が一致しません。")
+                raise ValueError(
+                    "元の用例DBの作成時の設定（normalization_identity）または検索条件の形式が、この検査器に対応していません。"
+                )
             record = dict(zip(QUERY_FIELDS, values, strict=True))
             validate_record(
                 {

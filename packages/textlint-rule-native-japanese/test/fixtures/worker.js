@@ -22,12 +22,12 @@ createInterface({ input: process.stdin }).on("line", line => {
         const unavailable = [];
         if (text.includes("解析保留")) {
             const start = text.indexOf("解析保留");
-            unavailable.push({ kind: "analysis", ranges: [[start, start + 4]], reason: "公開された格・項の関係がありません。" });
+            unavailable.push({ kind: "analysis", ranges: [[start, start + 4]], reason: "単語どうしの関係を解析結果から読み取れません。" });
         }
         if (text.includes("参照対象") && text.includes("比較する")) {
             const noun = text.indexOf("参照対象");
             const predicate = text.indexOf("比較する");
-            unavailable.push({ kind: "reference", ranges: [[noun, noun + 4], [predicate, predicate + 4]], reason: "群の重心が厳密にゼロです" });
+            unavailable.push({ kind: "reference", ranges: [[noun, noun + 4], [predicate, predicate + 4]], reason: "用例の比較に必要なデータを利用できません。" });
         }
         if (unavailable.length) results[i].unavailable = unavailable;
         if (text.includes("保留不正")) {
