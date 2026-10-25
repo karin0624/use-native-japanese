@@ -192,7 +192,8 @@ test("UTF-16のサロゲート境界・範囲外・encoding・訂正候補の不
 });
 
 test("commandと期限の設定を検証する", () => {
-    for (const command of [undefined, "python", [], [""], ["node", 3], ["node\0"]]) {
+    assert.deepEqual(configuration(), { requestTimeoutMs: 120_000 });
+    for (const command of [null, "python", [], [""], ["node", 3], ["node\0"]]) {
         assert.throws(() => configuration({ command }), /command/);
     }
     assert.throws(() => configuration({ command: ["node"], requestTimeoutMs: 0 }), /requestTimeoutMs/);

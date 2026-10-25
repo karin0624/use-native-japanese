@@ -1,15 +1,17 @@
 import { spawn } from "node:child_process";
+import { onExit } from "signal-exit";
+import { prepareRuntime } from "./runtime.js";
 
 const workers = new Map();
 const children = new Set();
 const MAX_OUTPUT = 16 * 1024 * 1024;
 
-export function configuration(options) {
-    if (!Array.isArray(options.command) || options.command.length === 0 ||
-        options.command.some((part, i) => typeof part !== "string" || part.includes("\0") || (i === 0 && !part))) {
+export function configuration(options = {}) {
+    if (options.command !== undefined && (!Array.isArray(options.command) || options.command.length === 0 ||
+        options.command.some((part, i) => typeof part !== "string" || part.includes("\0") || (i === 0 && !part)))) {
         throw new Error("native-japanese: commandには実行ファイル名と引数の文字列配列を指定してください。");
     }
-    const config = { command: [...options.command] };
+    const config = options.command === undefined ? {} : { command: [...options.command] };
     const requestTimeoutMs = options.requestTimeoutMs === undefined ? 120_000 : options.requestTimeoutMs;
     if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1 || requestTimeoutMs > 2_147_483_647) {
         throw new Error("native-japanese: requestTimeoutMsには1〜2147483647ミリ秒の整数を指定してください。");
@@ -19,7 +21,7 @@ export function configuration(options) {
 }
 
 export class Worker {
-    constructor(config, { idleMs = 30_000, timeoutMs = 120_000, onIdle = () => {} } = {}) {
+    constructor(config, { idleMs = 30_000, timeoutMs = 120_000, onIdle = () => {}, prepare = prepareRuntime } = {}) {
         this.config = config;
         this.idleMs = idleMs;
         this.timeoutMs = timeoutMs;
@@ -27,12 +29,26 @@ export class Worker {
         this.pending = new Map();
         this.sequence = 0;
         this.child = null;
+        this.prepare = prepare;
+        this.generation = 0;
     }
 
-    start() {
+    async start() {
         if (this.child) return;
-        const [command, ...args] = this.config.command;
-        const child = spawn(command, args, { shell: false, stdio: ["pipe", "pipe", "pipe"] });
+        if (this.starting) return this.starting;
+        const generation = this.generation;
+        this.starting = (async () => {
+            const runtime = this.config.command ? this.config : await this.prepare();
+            if (generation !== this.generation) throw new Error("native-japanese: ワーカーの起動を中止しました。");
+            this.spawn(runtime);
+        })();
+        try { await this.starting; }
+        finally { this.starting = null; }
+    }
+
+    spawn(runtime) {
+        const [command, ...args] = runtime.command;
+        const child = spawn(command, args, { cwd: runtime.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
         this.child = child;
         this.buffer = "";
@@ -65,9 +81,11 @@ export class Worker {
         });
     }
 
-    request(texts) {
+    async request(texts) {
         clearTimeout(this.idleTimer);
-        this.start();
+        // 初回の環境準備は検査要求の応答期限に含めない。
+        await this.start();
+        clearTimeout(this.idleTimer);
         this.reference(true);
         const id = String(++this.sequence);
         return new Promise((resolveRequest, reject) => {
@@ -104,6 +122,7 @@ export class Worker {
     }
 
     close(error = new Error("native-japanese: ワーカーを終了しました。")) {
+        this.generation++;
         clearTimeout(this.idleTimer);
         for (const pending of this.pending.values()) {
             clearTimeout(pending.timer);
@@ -132,4 +151,4 @@ export function getWorker(config) {
 }
 
 // 親の終了時は、終了処理中の子も含め、タイマーに頼らず回収する。
-process.once("exit", () => { for (const child of children) child.kill("SIGKILL"); });
+onExit(() => { for (const child of children) child.kill("SIGKILL"); });

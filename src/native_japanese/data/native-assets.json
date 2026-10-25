@@ -17,7 +17,7 @@
     "scikit-learn": "1.9.1"
   },
   "attribution": {
-    "fasttext-ja-mini": "Liebl Bernhard, Compressed fastText Embeddings, v1.0, 2021-06-07, DOI 10.5281/zenodo.4905385。元系列fastText crawl-vectors。説明本文はCC BY-SA 3.0、record metadataはCC BY 4.0で不一致。圧縮前の厳密snapshotは未確認。",
-    "hashes": "別配布資源hashは保存済み取得値を固定期待値として使用。公式公開SHAとの照合を主張しない。"
+    "fasttext-ja-mini": "Liebl Bernhard, Compressed fastText Embeddings, v1.0, 2021-06-07, DOI 10.5281/zenodo.4905385。公開ファイルを未変更で使用。説明本文と上流fastText crawl-vectorsはCC BY-SA 3.0を明記し、これをモデルの条件として保持する。record metadataのCC BY 4.0表示も保持し、選択可能な二重許諾とは扱わない。元系列はGrave, Bojanowski, Gupta, Joulin, Mikolov, Learning Word Vectors for 157 Languages, LREC 2018。圧縮前の厳密snapshotは未確認。",
+    "hashes": "SHA-256は保存済み取得値を固定期待値として使用。2026-10-25に実ファイルのMD5 6f50bff91970a95743040320f76872efをZenodo公式APIの当該ファイルchecksumと照合し一致。公式公開SHA-256との照合を主張しない。"
   }
 }
