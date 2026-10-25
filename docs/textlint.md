@@ -1,14 +1,14 @@
 # textlint接続
 
-このルールはPython検査器の常駐JSONL出力をtextlintの位置付き指摘へ接続します。他のプロジェクトへの導入は[セットアップ](setup.md#他のプロジェクトで使う)を参照してください。配布パッケージはモデルと参照DBを同梱し、実行環境を初回に自動で準備します。cloneしたリポジトリの検証は[開発手順](development.md#checkoutのソースをtextlintで検証する)を参照してください。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。[旧検証結果](runtime-validation.md)の日本語指摘結果は旧方式の履歴であり、人工workerによる通信・位置の試験と区別します。
+このプリセットはPython検査器の常駐JSONL出力をtextlintの位置付き指摘へ接続します。他のプロジェクトへの導入は[セットアップ](setup.md#他のプロジェクトで使う)を参照してください。配布パッケージはモデルと参照DBを同梱し、実行環境を初回に自動で準備します。cloneしたリポジトリの検証は[開発手順](development.md#checkoutのソースをtextlintで検証する)を参照してください。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。[旧検証結果](runtime-validation.md)の日本語指摘結果は旧方式の履歴であり、人工workerによる通信・位置の試験と区別します。
 
 ## ファイル・パスを検査する
 
 他のプロジェクトに配布パッケージを導入した場合は、そのプロジェクトでファイルまたはパスを指定します。
 
 ```sh
-npx textlint --rule native-japanese README.md
-npx textlint --rule native-japanese "docs/**/*.md"
+npx textlint --rule preset-native-japanese README.md
+npx textlint --rule preset-native-japanese "docs/**/*.md"
 ```
 
 配布パッケージの利用には設定ファイルや`command`の指定は不要です。初回の自動準備は、検査要求の応答期限を測り始める前に行います。
@@ -24,30 +24,34 @@ npx textlint "docs/**/*.md"
 
 ## 指摘の読み方
 
-`「A」と「B」の組み合わせが不自然かもしれません。表現を確認してください。`は、収録した用例との比較で確認が必要になった箇所です。誤用と確定したわけではありません。
+`「A」と「B」の組み合わせが不自然かもしれません。表現を確認してください。`は、収録した用例との比較で確認が必要になった箇所です。`usage`ルールが`error`として返します。これは検査が正常に完了した結果であり、誤用を確定したわけではありません。
 
-「判定できません。比較に使える用例が収録されていません。」は、名詞を替えて比較するための用例もない状態です。組み合わせそのものが未収録という理由だけで、誤用とは判定しません。語の比較に必要なデータを得られない場合も、その理由を「判定できません。」に続けて表示します。
+「判定できません。比較に使える用例が収録されていません。」などは、辞書・解析の対応不足を伝える`coverage`ルールの`warning`です。文章の修正を求めるものではありません。組み合わせそのものが未収録という理由だけで誤用とは判定せず、その使い方が日本語全体に存在しないという意味にもなりません。語の比較に必要なデータを得られない場合も、その理由を「判定できません。」に続けて表示します。
 
-この二つはtextlint上ではどちらも指摘として表示されます。後者は文章の修正を求めるものではありません。
+textlintの出力ではルール名は`native-japanese/usage`と`native-japanese/coverage`になります。`warning`だけなら終了値は0、`error`を含むと1です。例外や壊れたデータによる処理失敗は、検査を完了できなかった異常です。正常な検査結果の`error`や、対応不足の`warning`とは区別して原因を確認してください。
 
 ## 独自参照・既存接続用の外部検査器（任意）
 
-既存の検査環境や独自参照を使う場合は、従来どおり`command`で外部検査器を指定できます。[開発環境](development.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませ、`.textlintrc.json`に実行ファイルと各引数を別々の要素で指定します。shell用の引用符は含めません。以下の絶対パスはローカルの準備先へ置き換えてください。相対パスはtextlintの実行ディレクトリを基準とします。
+既存の検査環境や独自参照を使う場合は、従来どおり`command`で外部検査器を指定できます。[開発環境](development.md)と[本体のprepare](runtime.md#索引準備と検査)を済ませ、`.textlintrc.cjs`に実行ファイルと各引数を別々の要素で指定します。shell用の引用符は含めません。以下の絶対パスはローカルの準備先へ置き換えてください。相対パスはtextlintの実行ディレクトリを基準とします。
 
-```json
-{
-  "rules": {
-    "native-japanese": {
-      "command": [
-        "/path/to/use-native-japanese/.venv/bin/native-japanese", "serve",
-        "--reference", "/path/to/reference.sqlite3",
-        "--assets-dir", "/path/to/assets"
-      ],
-      "requestTimeoutMs": 120000
+```js
+const command = [
+    "/path/to/use-native-japanese/.venv/bin/native-japanese", "serve",
+    "--reference", "/path/to/reference.sqlite3",
+    "--assets-dir", "/path/to/assets"
+];
+
+module.exports = {
+    rules: {
+        "preset-native-japanese": {
+            usage: { command, requestTimeoutMs: 120000, severity: "error" },
+            coverage: { command, requestTimeoutMs: 120000, severity: "warning" }
+        }
     }
-  }
-}
+};
 ```
+
+`command`などを上書きするときは、各ルールの`severity`も明示します。textlintではプリセット内の設定を上書きすると、プリセットで定めたseverityが引き継がれません（[textlint #1606](https://github.com/textlint/textlint/issues/1606)）。
 
 用例追加後は正本から参照を再compileし、新しい参照でworkerを起動します。正本DBを`command`へ渡す必要はありません。[出典付き用例の追加](runtime.md#出典付き用例を追加する)を参照してください。
 
@@ -75,7 +79,7 @@ textlintが送る`id`は文字列で、応答は入力と同じ値を返す。`r
 {"id":"1","results":[{"offsetEncoding":"utf-16","diagnostics":[],"unavailable":[{"kind":"reference","reason":"比較に使える用例が収録されていません。","ranges":[[3,4],[5,8]]}]},{"offsetEncoding":"utf-16","diagnostics":[]}]}
 ```
 
-textlintは各範囲に「判定できません。理由」を表示します。`kind`は、解析結果から比較に必要な情報を得られなかった場合の`analysis`と、比較する用例やデータを利用できなかった場合の`reference`を区別します。表示する理由は、何が不足したかを自然な日本語で記述してください。用例の不足だけで文章に誤りがあるとは扱いません。本体が返す`relations`の内部構造は読まず、この表示には`unavailable`だけを使います。従来のworkerが配列を省略する場合も互換です。存在する場合は配列・項目・範囲の形式を検証し、不正なら処理エラーにします。
+textlintは各範囲に`warning`として「判定できません。理由」を表示します。`kind`は、解析結果から比較に必要な情報を得られなかった場合の`analysis`と、比較する用例やデータを利用できなかった場合の`reference`を区別します。表示する理由は、何が不足したかを自然な日本語で記述してください。用例の不足だけで文章に誤りがあるとは扱いません。本体が返す`relations`の内部構造は読まず、この表示には`unavailable`だけを使います。従来のworkerが配列を省略する場合も互換です。存在する場合は配列・項目・範囲の形式を検証し、不正なら処理エラーにします。
 
 要求単位の処理失敗は次の形式で返す。この場合、同じworkerを次の要求で利用できる。
 

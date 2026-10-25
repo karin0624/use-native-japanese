@@ -43,7 +43,7 @@ with Inspector(
 | `review` | 索引は陰性で、比較可能な支持が境界未満 |
 | `unavailable` | 比較可能な数値がなく、理由を保持する |
 
-陰性だけでは警告しません。`review`では名詞・述語それぞれの端点へ指摘を返します。`score`は同じ条件の名詞群平均の方向への類似度で、正誤確率ではありません。不能を0へ置き換えず、未収録群・ベクトル不能・解析情報不足の理由を残します。指摘が空でも全文を判定できたとは限りません。訂正案は未実装です。
+陰性だけでは語の使い方を指摘しません。`review`では名詞・述語それぞれの端点へ指摘を返します。`score`は同じ条件の名詞群平均の方向への類似度で、正誤確率ではありません。不能を0へ置き換えず、未収録群・ベクトル不能・解析情報不足の理由を残します。指摘が空でも全文を判定できたとは限りません。訂正案は未実装です。
 
 ## JSONLで常駐させる
 
@@ -53,7 +53,9 @@ native-japanese serve --reference "$REFERENCE" --assets-dir "$ASSETS"
 
 stdinへ`{"id":"1","texts":["一つ目の本文。","二つ目の本文。"]}`を1行ずつ送ると、同じ`id`と同じ順序の`results`を返します。`lint`・`serve`の結果には`offsetEncoding: "utf-16"`、`diagnostics`、`relations`、`unavailable`が含まれ、全範囲をUTF-16へ変換します。要求単位の失敗は`error.message`で返し、後続要求を受け付けます。
 
-`unavailable`は`kind`（`analysis`または`reference`）、理由`reason`、端点範囲配列`ranges`を持ちます。textlintは「判定できません。」に理由を続けて表示します。これは文章に誤りがあるという指摘ではありません。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
+`unavailable`は`kind`（`analysis`または`reference`）、理由`reason`、端点範囲配列`ranges`を持ちます。textlintは`coverage`ルールの`warning`として「判定できません。」に理由を続けて表示します。これは文章に誤りがあるという指摘ではありません。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
+
+`diagnostics`は語の使い方について確認を促す正常な検査結果で、textlintでは`usage`ルールの`error`になります。`unavailable`も正常な応答の一部で、用例未収録や解析の対応不足を表します。未収録だけで、その使い方が日本語全体に存在しないとは判断しません。例外や不正なデータにより検査を完了できない場合は、これらと分けて処理失敗として返します。Pythonの`lint`は正常なJSON出力なら指摘の有無によらず終了値0です。textlintは`warning`だけなら0、本文への`error`を含むと1を返します。
 
 ## 出典付き用例を追加する
 

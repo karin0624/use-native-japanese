@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const tarball = path.resolve(process.argv[2] ?? "");
 assert.ok(process.argv[2]?.endsWith(".tgz"), "検証するnpm packのtgzを引数で指定してください。");
-const sourcePackage = fileURLToPath(new URL("../packages/textlint-rule-native-japanese/", import.meta.url));
+const sourcePackage = fileURLToPath(new URL("../packages/textlint-rule-preset-native-japanese/", import.meta.url));
 const sourceManifest = JSON.parse(await readFile(path.join(sourcePackage, "assets/manifest.json"), "utf8"));
 const temporary = await mkdtemp(path.join(tmpdir(), "native-japanese-package-"));
 const project = path.join(temporary, "consumer");
@@ -65,15 +65,15 @@ async function sha256(file) {
 }
 
 function messages(result) {
-    return result.messages.map(({ range, message, ruleId }) => ({ range, message, ruleId }))
+    return result.messages.map(({ range, message, ruleId, severity }) => ({ range, message, ruleId, severity }))
         .sort((a, b) => a.range[0] - b.range[0] || a.range[1] - b.range[1]);
 }
 
 function expectedMessages(result) {
     assert.equal(result.offsetEncoding, "utf-16");
-    const expected = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese" }));
+    const expected = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese/usage", severity: 2 }));
     for (const item of result.unavailable) {
-        expected.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese" })));
+        expected.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese/coverage", severity: 1 })));
     }
     return expected.sort((a, b) => a.range[0] - b.range[0] || a.range[1] - b.range[1]);
 }
@@ -109,7 +109,7 @@ try {
     await writeFile(path.join(project, "package.json"), JSON.stringify({ private: true, type: "module" }));
     console.log("repo外へ、install scriptsを無効にして通常のoptional dependenciesとともに導入します。");
     await run(process.execPath, [await npmCli(), "install", "--ignore-scripts", "--no-audit", "--no-fund", tarball, "textlint@15.8.0"]);
-    const installed = path.join(project, "node_modules/textlint-rule-native-japanese");
+    const installed = path.join(project, "node_modules/textlint-rule-preset-native-japanese");
     const installedBytes = (await Promise.all(entries.map(name => stat(path.join(installed, name.slice("package/".length))))))
         .reduce((bytes, info) => bytes + info.size, 0);
     console.log(`tarball ${(await stat(tarball)).size} bytes、同梱package実体 ${installedBytes} bytes（npm依存・Python/cacheは別）。`);
@@ -142,7 +142,7 @@ try {
     const cli = path.join(project, "node_modules/textlint/bin/textlint.js");
     console.log("空の専用cacheから、--ruleだけの初回file検査を実行します（初回取得はnetworkを使います）。");
     const firstStarted = performance.now();
-    const first = jsonOutput(await run(process.execPath, [cli, "--rule", "native-japanese", "--format", "json", "input.md"],
+    const first = jsonOutput(await run(process.execPath, [cli, "--rule", "preset-native-japanese", "--format", "json", "input.md"],
         { env, statuses: [0, 1] }));
     console.log(`初回準備とfile検査: ${((performance.now() - firstStarted) / 1000).toFixed(2)}秒。`);
     assert.equal(first.length, 1);
@@ -160,7 +160,7 @@ try {
     console.log("同じcacheとUV_OFFLINE=1で、引用したglobと同じ1引数のdocs/**/*.mdを検査します。");
     const offline = { ...env, UV_OFFLINE: "1" };
     const offlineStarted = performance.now();
-    const second = jsonOutput(await run(process.execPath, [cli, "--rule", "native-japanese", "--format", "json", "docs/**/*.md"],
+    const second = jsonOutput(await run(process.execPath, [cli, "--rule", "preset-native-japanese", "--format", "json", "docs/**/*.md"],
         { env: offline, statuses: [0, 1] }));
     console.log(`offline再起動とglob検査: ${((performance.now() - offlineStarted) / 1000).toFixed(2)}秒。`);
     assert.equal(second.length, 2);

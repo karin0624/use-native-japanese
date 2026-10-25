@@ -59,11 +59,11 @@ def test_compile_indexed_and_generalization_without_archive(setup_reference, mon
         support = runtime.assess(replace(QUERY, noun=("西",)))
         assert not support.indexed and support.score == pytest.approx(-1 / np.sqrt(2))
         assert (support.comparable, support.total) == (2, 3)
-        assert support.reason == "一部の用例は比較に使えません。"
+        assert support.reason == "収録用例の一部は比較に使えません。"
         unavailable = runtime.assess(replace(QUERY, noun=("零",)))
         assert unavailable.score is None
         assert unavailable.reason == (
-            support.reason + "この語句を用例と比較するためのデータを取得できません。"
+            support.reason + "「零」を比較するための情報が、付属の単語辞書にありません。"
         )
         assert runtime.connection.execute("SELECT reason FROM groups").fetchone()[0] == (
             "群内の一部名詞列は比較不能です"
@@ -83,7 +83,7 @@ def test_every_non_noun_condition_stays_fixed(setup_reference):
         ):
             support = runtime.assess(replace(QUERY, noun=("西",), **changed))
             assert not support.indexed and support.score is None and support.total == 0
-            assert "比較に使える用例が収録されていません" in support.reason
+            assert "この使い方の比較に必要な用例が、辞書に収録されていません" in support.reason
 
 
 def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
@@ -146,7 +146,9 @@ def test_failed_build_preserves_prior_output_and_never_overwrites_archive(
         assert len(list(examples.iter_usages())) == 3
 
 
-@pytest.mark.parametrize("damage", ["identity", "nan", "dimension", "counts", "missing", "bloom"])
+@pytest.mark.parametrize(
+    "damage", ["identity", "nan", "dimension", "counts", "missing", "bloom", "nonfinite_reason"]
+)
 def test_corrupt_reference_is_rejected(setup_reference, damage):
     source, output, assets = setup_reference
     reference.build_reference(source, output, assets)
@@ -165,6 +167,11 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
             db.execute("UPDATE groups SET comparable=total+1")
         elif damage == "missing":
             db.execute("DELETE FROM groups WHERE key=?", (group_key(QUERY),))
+        elif damage == "nonfinite_reason":
+            # 古いDBで計算異常が理由だけに保存されていても、正常な不足へ変えない。
+            db.execute(
+                "UPDATE groups SET mean=NULL, comparable=0, reason=?", ("群の平均が非有限です",)
+            )
         else:
             db.execute("UPDATE membership SET payload=zeroblob(length(payload))")
     with pytest.raises(ValueError):

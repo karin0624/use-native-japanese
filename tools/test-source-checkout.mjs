@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const python = path.join(root, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-const assets = path.join(root, "packages/textlint-rule-native-japanese/assets");
+const assets = path.join(root, "packages/textlint-rule-preset-native-japanese/assets");
 const cli = path.join(root, "node_modules/textlint/bin/textlint.js");
 
 function run(command, args, statuses = [0]) {
@@ -28,17 +28,47 @@ function ordered(messages) {
 }
 
 function actualMessages(result) {
-    return ordered(result.messages.map(({ range, message, ruleId }) => ({ range, message, ruleId })));
+    return ordered(result.messages.map(({ range, message, ruleId, severity }) => ({ range, message, ruleId, severity })));
 }
 
 function expectedMessages(result) {
     assert.equal(result.offsetEncoding, "utf-16");
-    const messages = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese" }));
+    const messages = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese/usage", severity: 2 }));
     for (const item of result.unavailable) {
-        messages.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese" })));
+        messages.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese/coverage", severity: 1 })));
     }
     return ordered(messages);
 }
+
+test("CLIは対応不足のwarningだけなら成功し、本文へのerrorがあれば終了値1を返す", async t => {
+    // 日本語の判定結果を固定せず、既存の人工workerでtextlintの終了状態を確かめる。
+    const directory = await mkdtemp(path.join(root, ".textlint-severity-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const command = [process.execPath,
+        path.join(root, "packages/textlint-rule-preset-native-japanese/test/fixtures/worker.js"),
+        path.join(directory, "worker.log")];
+    const config = path.join(directory, "textlintrc.json");
+    await writeFile(config, JSON.stringify({ rules: {
+        "preset-native-japanese": {
+            usage: { command, severity: "error" },
+            coverage: { command, severity: "warning" }
+        }
+    } }));
+    for (const [name, text, status, severities] of [
+        ["warning", "🍣 解析保留。参照対象を比較する。", 0, [1, 1, 1]],
+        ["mixed", "🍣 解析保留。雲を食べる。", 1, [1, 2]]
+    ]) {
+        const file = path.join(directory, `${name}.md`);
+        await writeFile(file, text);
+        const [result] = run(process.execPath, [cli, "--config", config,
+            "--format", "json", file], [status]);
+        assert.deepEqual(result.messages.map(message => message.severity).sort(), severities);
+        for (const message of result.messages) {
+            assert.equal(message.ruleId,
+                message.severity === 2 ? "native-japanese/usage" : "native-japanese/coverage");
+        }
+    }
+});
 
 test("checkoutの設定でファイル・globを検査し、公開Python CLIのUTF-16範囲と一致する", { timeout: 300_000 }, async t => {
     const source = run(python, ["-E", "-X", "utf8", "-c",

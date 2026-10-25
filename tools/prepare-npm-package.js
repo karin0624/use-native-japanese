@@ -1,10 +1,10 @@
 import { cp, mkdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { verifyAssets } from "../packages/textlint-rule-native-japanese/src/assets.js";
+import { verifyAssets } from "../packages/textlint-rule-preset-native-japanese/src/assets.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const packageRoot = join(root, "packages/textlint-rule-native-japanese");
+const packageRoot = join(root, "packages/textlint-rule-preset-native-japanese");
 await verifyAssets(join(packageRoot, "assets"));
 const backend = join(packageRoot, "backend");
 await rm(backend, { recursive: true, force: true });

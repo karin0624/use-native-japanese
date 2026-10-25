@@ -1,8 +1,8 @@
 {
-  "name": "textlint-rule-native-japanese",
+  "name": "textlint-rule-preset-native-japanese",
   "version": "0.1.0",
   "private": true,
-  "description": "日本語の語の組合せを用例に照らして位置付きで確認するtextlintルール",
+  "description": "日本語の語の使い方への指摘と、辞書・解析の対応不足を分けて伝えるtextlintプリセット",
   "type": "module",
   "exports": "./src/index.js",
   "files": [

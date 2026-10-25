@@ -2,8 +2,8 @@
   "name": "native-japanese-workspace",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/textlint-rule-native-japanese"],
-  "scripts": {"test": "node --test packages/textlint-rule-native-japanese/test/*.test.js"},
+  "workspaces": ["packages/textlint-rule-preset-native-japanese"],
+  "scripts": {"test": "node --test packages/textlint-rule-preset-native-japanese/test/*.test.js"},
   "devDependencies": {"textlint": "15.8.0"},
   "engines": {"node": ">=20.18.0"}
 }

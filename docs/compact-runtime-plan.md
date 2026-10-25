@@ -63,4 +63,14 @@ NER除外の確認では、固定46本文と既知性能用3本文のtoken全属
 
 新しい解析・保存契約は明示し、旧契約と混ぜない。単一の実行経路を優先し、未採用の解析器や保存方式を製品の選択肢として増やさない。数式・公開API・通信・位置の保証に必要なテストを残し、旧実装の細部を固定するだけの試験は持ち越さない。実装はGPT-6.1 sol、採用後の単純さ・保守性・試験はfresh contextでレビューする。
 
-容量削減と目的への適合を実測で示せた構成を採用する。全用例収録、全例の正答、訂正案は追加の完了条件にしない。元資料・モデル・生成索引はGit外に保持し、コードと日本語の判断記録だけをコミットする。
+容量削減と目的への適合を実測で示せた構成を採用する。全用例収録、全例の正答、訂正案は追加の完了条件にしない。元資料・構築用の正本はGit外に保持する。配布用の固定モデルと参照DBは、後に決定した[配布方針](npm-distribution-plan.md)に従いGit LFSで管理する。
+
+## 指摘・辞書不足・処理異常の区別（2026-10-25）
+
+用例照合による語の使い方への指摘は、検査器の正常な結果としてerrorを返す。個別の辞書に必要な情報がなく検査できない場合はwarningを返す。プログラムの例外や不正な数値は処理失敗とし、辞書の未収録へ読み替えない。用例辞書に記録がないことと、日本語全体にその用法が存在しないことも区別する。
+
+付属の圧縮モデルでは、語彙にない語を文字ngramで補う。ただし、5文字のngramを作れない短い語や、該当するngramを圧縮時に削除した語には、比較に使う情報がない。[compress-fasttext作者の説明](https://github.com/avidale/compress-fasttext/issues/15#issuecomment-1178592339)と[gensimの実装](https://github.com/piskvorky/gensim/blob/4.4.0/gensim/models/fasttext.py#L996)で、この場合のゼロベクトルは仕様どおりと確認した。READMEの「用例」「述語」などもこの条件に当たる。「データを取得できない」とは表示せず、不足する語を明示する。未知語でもngramから比較できる値が得られれば利用する。
+
+単語の情報がある場合でも、合成や平均で値が打ち消し合うことがある。これを単語の未収録とは表示しない。保存済みの用例辞書は、比較できない用例の理由を個別には持たないため、集約した理由から不足の原因を推測しない。配列の形状不正、非有限値、ライブラリの例外は通常の比較不能へ変換せず、検査失敗として返す。
+
+textlintの推奨APIではseverityはルールごとに設定する。[issue #144](https://github.com/textlint/textlint/issues/144#issuecomment-195730081)で非推奨と説明された、報告オブジェクトでseverityを上書きする経路は使わない。[公式のpreset試験](https://github.com/textlint/textlint/blob/v15.8.0/packages/textlint/test/cli-snapshot-test/rule_modules/textlint-rule-preset-test/index.js)に従い、error用の`usage`とwarning用の`coverage`を一つのプリセットにまとめる。配布名を`textlint-rule-preset-native-japanese`、指定を`--rule preset-native-japanese`へ変更することは利用者の承認済み。同じ文書・同じ検査設定では解析結果を共有し、二重に解析しない。cloneしたリポジトリでは引き続き`npx textlint 対象パス`を使う。
