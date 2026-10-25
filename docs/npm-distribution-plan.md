@@ -37,7 +37,7 @@ npm側は独自postinstallを置かず、最初のtextlint検査前にuvでmanag
 
 ## 接続前の限定確認
 
-Git外で`@dataiku/uv@0.12.0`をscripts無効で導入し、managed Python3.12.13の取得と、現lockに対する`sync --locked --no-dev --no-install-project --dry-run`が成功した。再解決は発生しなかった。実際の依存同期と検査起動は配布物で検証する。
+Git外で`@dataiku/uv@0.12.0`をscripts無効で導入し、managed Python3.12.13の取得と、現lockに対する`sync --locked --no-dev --no-install-project --dry-run`が成功した。再解決は発生しなかった。実際の依存同期と検査起動は、以下の配布物検証で確認した。
 
 wrapperの`bin.cjs`は内部でspawnSyncを使うため、外側Nodeの終了だけではuvを確実に回収できない。また初回のbinaryコピーはpackage領域に書込みを要求する。npm依存として配られたplatform packageの既存uv binaryを解決して直接起動する。独自のbinary取得や展開は行わず、薄い起動処理で有限の準備待ちと終了時回収を持つ。
 
@@ -47,11 +47,19 @@ wrapperの`bin.cjs`は内部でspawnSyncを使うため、外側Nodeの終了だ
 
 ## 配布物の検証結果
 
-Linux x64、Node.js 24.19.0で、repo外へ実tgzを`npm install --ignore-scripts`で導入した。空cacheからのファイル検査は11.21秒、取得後に`UV_OFFLINE=1`で行ったglob検査は5.04秒だった。これは今回の2入力と環境での導入確認であり、一般的な初回所要時間・検出性能の測定ではない。managed CPython 3.12.13が専用cacheに入り、同梱Python APIと指摘・保留・UTF-16位置が一致した。
+2026-10-26、実装commit `f831711`の[CI実行](https://github.com/karin0624/use-native-japanese/actions/runs/40208162883)で、3 OSすべて成功した。各runnerがLFS資源を再取得し、実tgzをrepo外へ`npm install --ignore-scripts`で導入した。空cacheからmanaged CPython3.12.13を準備し、ファイル検査、`UV_OFFLINE=1`でのglob検査、公開Python CLIとの全message・UTF-16範囲の一致を確認した。
 
-tgzは52,201,787bytes、展開した当該packageは94,103,785bytes・30ファイル。npmの依存、Python、初回取得cacheはこの容量に含まない。原コーパス・構築正本・一時環境を含まないこと、固定モデルと参照のhash、1,025記事・6,463区間の出典、ライセンス原文を検査した。Nodeの22テスト、Pythonの87テストと19subtest、Ruffが成功した。fresh contextで実装・テスト・利用手順を再レビューし、上記signal回収の修正後に追加の具体的不備は認められなかった。
+| 実行環境 | Node | 初回準備＋ファイル検査 | uv offline＋glob検査 |
+| --- | --- | ---: | ---: |
+| Ubuntu 24.04.5 / x64 | 24.21.0 | 6.56秒 | 3.56秒 |
+| macOS 26.6.2 / arm64 | 24.22.1 | 9.16秒 | 4.53秒 |
+| Windows Server 2025 / x64 | 24.22.1 | 24.32秒 | 7.77秒 |
 
-macOSとWindowsは同じ配布物検証をGitHub Actionsで実行する。CI結果とLFS再取得の確認は、この節へ追記する。
+時間は今回の2入力とrunnerでの観測であり、一般的な初回所要時間・検出性能の測定ではない。Linux arm64、macOS x64、記載した最低OS版での実行は、このCIでは未確認。
+
+同じ実装からローカルで作ったtgzは52,201,815bytes、展開した当該packageは94,103,805bytes・30ファイル。npmの依存、Python、初回取得cacheはこの容量に含まない。SHA-256は`ea8dc7be32097fb9913a634e953cb65a8c8c6c6fc3062c5768597f91de89c06d`。全OSで、原コーパス・構築正本・一時環境の混入がないこと、正本manifestに一致する資源・出典のhash、ライセンス原文の一覧と内容が正本どおりであることを確認した。権利関係の判断そのものを自動検査したという意味ではない。
+
+NodeはLinux・macOSで22件成功、Windowsで21件成功・POSIX signalの1件skip。LinuxではPython87件・19subtestとRuffも成功した。fresh contextで実装・テスト・利用手順と、後述のCI整理を再レビューした。npm registryには公開していない。
 
 ## CIの目的と境界（2026-10-26）
 
@@ -61,6 +69,6 @@ macOSとWindowsは同じ配布物検証をGitHub Actionsで実行する。CI結�
 
 記事数・区間数・ライセンスファイル数・資源hashを試験へ重複記載せず、配布対象の正本と照合する。自然文の判定結果と範囲の固定値も外し、同じ参照を使った公開Python CLIとの出力一致を確認する。用例追加で判定が変わることを配布の不具合とみなさない。managed Pythonの版と専用領域は、利用者の既存Pythonに依存していないことを確かめる対象として残す。
 
-Windowsの実起動では、深いcache内のspaCy拡張を読み込む際に長いパスのエラーを観測した。固定wheelのファイル名・manifestと[CPythonの既知issue #126929](https://github.com/python/cpython/issues/126929)を照合した。環境keyのSHA-256をhexからbase64urlへ表記変更し、全256bitと識別条件を保って21文字短縮する案を検証する。受け入れ試験の隔離先や期待値を変更して回避しない。
+Windowsの実起動では、深いcache内のspaCy拡張を読み込む際に長いパスのエラーを観測した。固定wheelのファイル名・manifestと[CPythonの既知issue #126929](https://github.com/python/cpython/issues/126929)を照合した。環境keyのSHA-256をhexからbase64urlへ表記変更し、全256bitと識別条件を保って21文字短縮した。受け入れ試験の隔離先や期待値を変えず、同じWindows runnerで起動できることを確認した。
 
-短縮後のWindows CIはDLL読込を通過し、次にJSONL入力で文字コードエラーを検出した。同じUTF-8入力をcp1252とsurrogateescapeで読むと、同じ文字位置・エラーを再現した。npmの標準起動に[Pythonの`-X utf8`](https://docs.python.org/3.12/using/cmdline.html#cmdoption-X)を明示し、JSONLのUTF-8契約をOSの既定値から独立させる。`-E`は維持し、環境変数による試験だけの回避や独自の文字コード変換を加えない。
+短縮後のWindows CIはDLL読込を通過し、次にJSONL入力で文字コードエラーを検出した。同じUTF-8入力をcp1252とsurrogateescapeで読むと、同じ文字位置・エラーを再現した。npmの標準起動に[Pythonの`-X utf8`](https://docs.python.org/3.12/using/cmdline.html#cmdoption-X)を明示し、JSONLのUTF-8契約をOSの既定値から独立させた。`-E`は維持し、環境変数による試験だけの回避や独自の文字コード変換は加えていない。修正後はWindowsでもfile・glob検査と公開CLIとの比較が成功した。
