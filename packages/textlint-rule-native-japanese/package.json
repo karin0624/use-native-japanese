@@ -2,10 +2,33 @@
   "name": "textlint-rule-native-japanese",
   "version": "0.1.0",
   "private": true,
-  "description": "外部の日本語検査器を位置付き指摘としてtextlintへ接続する",
+  "description": "日本語の語の組合せを用例に照らして位置付きで確認するtextlintルール",
   "type": "module",
   "exports": "./src/index.js",
-  "engines": {"node": ">=20.18.0"},
-  "dependencies": {"micromark": "4.0.3", "textlint-util-to-string": "3.3.4"},
-  "peerDependencies": {"textlint": ">=15.0.0"}
+  "files": [
+    "src/*.js",
+    "backend/pyproject.toml",
+    "backend/uv.lock",
+    "backend/src/native_japanese/**/*.py",
+    "backend/src/native_japanese/data/*.json",
+    "assets",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "scripts": {
+    "prepack": "node ../../tools/prepare-npm-package.js"
+  },
+  "engines": {
+    "node": ">=20.18.0"
+  },
+  "dependencies": {
+    "@dataiku/uv": "0.12.0",
+    "env-paths": "4.0.0",
+    "micromark": "4.0.3",
+    "signal-exit": "4.1.0",
+    "textlint-util-to-string": "3.3.4"
+  },
+  "peerDependencies": {
+    "textlint": ">=15.0.0"
+  }
 }

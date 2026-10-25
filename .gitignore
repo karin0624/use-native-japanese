@@ -16,6 +16,7 @@ dist/
 coverage/
 htmlcov/
 build/
+packages/textlint-rule-native-japanese/backend/
 data/*
 models/
 raw/

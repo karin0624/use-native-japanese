@@ -1,0 +1,36 @@
+name: npm配布物の検証
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      # 公式releaseのaction.ymlを確認したNode 24版。2026-10-25確認。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm test
+      - name: Git外へpack
+        shell: bash
+        run: npm pack --workspace packages/textlint-rule-native-japanese --pack-destination "$RUNNER_TEMP"
+      - name: 実tarballをrepo外へ導入して検査
+        shell: bash
+        run: node tools/test-npm-package.mjs "$RUNNER_TEMP/textlint-rule-native-japanese-0.1.0.tgz"
