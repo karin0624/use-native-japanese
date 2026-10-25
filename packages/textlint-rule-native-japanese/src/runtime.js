@@ -109,7 +109,7 @@ async function prepare() {
     });
     const python = process.platform === "win32" ? join(environment, "Scripts/python.exe") : join(environment, "bin/python");
     return {
-        command: [python, "-E", "-m", "native_japanese", "serve", "--reference", join(assets, "reference.sqlite3"), "--assets-dir", assets],
+        command: [python, "-E", "-X", "utf8", "-m", "native_japanese", "serve", "--reference", join(assets, "reference.sqlite3"), "--assets-dir", assets],
         cwd: join(backend, "src")
     };
 }

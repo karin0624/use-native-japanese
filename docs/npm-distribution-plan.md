@@ -62,3 +62,5 @@ macOSとWindowsは同じ配布物検証をGitHub Actionsで実行する。CI結�
 記事数・区間数・ライセンスファイル数・資源hashを試験へ重複記載せず、配布対象の正本と照合する。自然文の判定結果と範囲の固定値も外し、同じ参照を使った公開Python CLIとの出力一致を確認する。用例追加で判定が変わることを配布の不具合とみなさない。managed Pythonの版と専用領域は、利用者の既存Pythonに依存していないことを確かめる対象として残す。
 
 Windowsの実起動では、深いcache内のspaCy拡張を読み込む際に長いパスのエラーを観測した。固定wheelのファイル名・manifestと[CPythonの既知issue #126929](https://github.com/python/cpython/issues/126929)を照合した。環境keyのSHA-256をhexからbase64urlへ表記変更し、全256bitと識別条件を保って21文字短縮する案を検証する。受け入れ試験の隔離先や期待値を変更して回避しない。
+
+短縮後のWindows CIはDLL読込を通過し、次にJSONL入力で文字コードエラーを検出した。同じUTF-8入力をcp1252とsurrogateescapeで読むと、同じ文字位置・エラーを再現した。npmの標準起動に[Pythonの`-X utf8`](https://docs.python.org/3.12/using/cmdline.html#cmdoption-X)を明示し、JSONLのUTF-8契約をOSの既定値から独立させる。`-E`は維持し、環境変数による試験だけの回避や独自の文字コード変換を加えない。
