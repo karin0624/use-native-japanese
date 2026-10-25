@@ -20,7 +20,7 @@ npx textlint README.md
 npx textlint "docs/**/*.md"
 ```
 
-この設定はcheckoutのソースとLFS資源を直接使います。変更後にtextlintを起動し直せば反映され、tgzの再導入は不要です。
+この設定はcheckoutのソースとLFS資源を直接使います。開発用ルールを選択済みなので、このリポジトリでは`--rule`を追加せず実行します。変更後にtextlintを起動し直せば反映され、tgzの再導入は不要です。
 
 ## 独自参照・既存接続用の外部検査器（任意）
 

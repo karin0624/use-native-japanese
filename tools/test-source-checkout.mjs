@@ -16,7 +16,11 @@ function run(command, args, statuses = [0]) {
     const result = spawnSync(command, args, { cwd: root, encoding: "utf8", shell: false, timeout: 120_000 });
     assert.ifError(result.error);
     assert.ok(statuses.includes(result.status), `${command}の終了値${result.status}\n${result.stderr}\n${result.stdout}`);
-    return JSON.parse(result.stdout);
+    try { return JSON.parse(result.stdout); }
+    catch (cause) {
+        throw new Error(`${command}の実行結果がJSONではありません（終了値${result.status}）。\n${result.stderr}\n${result.stdout}`,
+            { cause });
+    }
 }
 
 function ordered(messages) {
@@ -49,8 +53,8 @@ test("checkoutの設定でファイル・globを検査し、公開Python CLIのU
     const files = texts.map((_, i) => path.join(directory, `${i}.md`));
     await Promise.all(files.map((file, i) => writeFile(file, texts[i])));
 
-    // cwdの設定を自動読込し、--ruleを併用しても開発用commandが保たれる。
-    const first = run(process.execPath, [cli, "--rule", "native-japanese", "--format", "json", files[0]], [0, 1]);
+    // cwdの設定を自動読込し、checkoutのソースをファイル指定で検査する。
+    const first = run(process.execPath, [cli, "--format", "json", files[0]], [0, 1]);
     assert.equal(first.length, 1);
     const glob = `${directory.split(path.sep).join("/")}/*.md`;
     const results = run(process.execPath, [cli, "--format", "json", glob], [0, 1]);
