@@ -1,4 +1,4 @@
-name: npm配布物の検証
+name: checkoutとnpm配布物の検証
 
 on:
   push:
@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  package:
+  checkout-and-package:
+    name: checkoutの開発検査と配布物の導入検査 (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -27,20 +28,23 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - run: npm ci
-      - run: npm test
-      - name: Python開発環境を準備
-        if: runner.os == 'Linux'
+      - name: checkoutのNode開発依存を準備
+        run: npm ci
+      - name: checkoutのNodeテスト
+        run: npm test
+      - name: checkoutのPython開発環境を準備
         run: npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.13
-      - name: Pythonの既存テスト
+      - name: checkoutのPythonテスト
         if: runner.os == 'Linux'
         run: npm exec --no -- uv run --no-sync pytest -q
-      - name: Pythonの静的検査
+      - name: checkoutのPython静的検査
         if: runner.os == 'Linux'
         run: npm exec --no -- uv run --no-sync ruff check src tests tools
-      - name: Git外へpack
+      - name: pack前にcheckoutのソースをtextlintで検査
+        run: node --test tools/test-source-checkout.mjs
+      - name: 配布物をGit外へpack
         shell: bash
         run: npm pack --workspace packages/textlint-rule-native-japanese --pack-destination "$RUNNER_TEMP"
-      - name: 実tarballをrepo外へ導入して検査
+      - name: 配布物を別プロジェクトへnpm installして検査
         shell: bash
         run: node tools/test-npm-package.mjs "$RUNNER_TEMP/textlint-rule-native-japanese-0.1.0.tgz"
