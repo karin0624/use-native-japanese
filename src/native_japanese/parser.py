@@ -48,6 +48,9 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             else:
                 continue
 
+            if "助動詞語幹" in noun.tag_.split("-"):
+                continue
+
             predicate_phrase = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
             noun_phrase = ginza.bunsetu_phrase_span(noun, use_token_head=True)
             predicate_endpoint = _endpoint(predicate_phrase, text)
@@ -56,9 +59,7 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
                 not phrase.start <= token.i < phrase.end
                 for token, phrase in ((predicate, predicate_phrase), (noun, noun_phrase))
             ):
-                raise ValueError(
-                    "解析された語句に、その語句の中心となる語が含まれていません。"
-                )
+                raise ValueError("解析された語句に、その語句の中心となる語が含まれていません。")
             relations.append(
                 Relation(
                     predicate_endpoint,

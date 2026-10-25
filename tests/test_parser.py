@@ -43,6 +43,29 @@ def test_full_noun_phrase_and_adjective_in_reverse_direction(parser):
     )
 
 
+def test_auxiliary_stem_is_not_a_lexical_noun_but_quoted_usage_is_checked(parser):
+    text = "「重複を畳む」のような語の使い方を用例に照らし、確認が必要な名詞・述語を返す。"
+    result = parser.analyze(text)
+    folding = [row for row in result.relations if row.predicate.text == "畳む"]
+    assert len(folding) == 1
+    assert folding[0].queries == (Query(("畳む",), "VERB", "obj", ("重複",), "NOUN", "dependent"),)
+    assert folding[0].predicate.ranges == ((4, 6),)
+    assert folding[0].argument.ranges == ((1, 3),)
+
+
+def test_ordinary_noun_modifier_and_object_relations_are_preserved(parser):
+    reading = parser.analyze("本を読む人")
+    assert {query for row in reading.relations for query in row.queries} == {
+        Query(("読む",), "VERB", "obj", ("本",), "NOUN", "dependent"),
+        Query(("読む",), "VERB", "acl", ("人",), "NOUN", "head"),
+    }
+    deleting = parser.analyze("ファイルを削除する")
+    assert any(
+        Query(("削除",), "VERB", "obj", ("ファイル",), "NOUN", "dependent") in row.queries
+        for row in deleting.relations
+    )
+
+
 def test_literal_text_and_batch_results_preserve_original_positions(parser):
     texts = ["😀 `重複`を`畳む`。\n重複を畳んでいる。\n", "", " \n ", "電気を消す。"]
     batched = list(parser.analyze_many(iter(texts)))

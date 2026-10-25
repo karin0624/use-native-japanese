@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-v2"
+NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-v3"
 PARSER_VERSIONS = {
     "ginza": "5.3.0+nativejapanese.1",
     "ja-ginza": "5.3.0",
