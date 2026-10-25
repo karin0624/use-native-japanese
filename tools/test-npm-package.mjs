@@ -86,7 +86,8 @@ function jsonOutput(result) {
 try {
     await mkdir(project);
     await mkdir(home);
-    const listing = await run("tar", ["-tzf", tarball]);
+    // WindowsのGNU tarがdriveの「:」をremote指定として扱わないよう、所在dirから開く。
+    const listing = await run("tar", ["-tzf", path.basename(tarball)], { cwd: path.dirname(tarball) });
     const entries = listing.stdout.trim().split(/\r?\n/).filter(name => !name.endsWith("/"));
     const allowed = [
         /^package\/(?:package\.json|README\.md|THIRD_PARTY_NOTICES\.md)$/,
