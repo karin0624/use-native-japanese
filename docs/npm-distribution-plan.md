@@ -34,3 +34,21 @@ npm側は独自postinstallを置かず、最初のtextlint検査前にuvでmanag
 4. npm同梱物に資源実体・検査実装・帰属が入り、原文・秘密・構築正本・一時環境が入らない。LFSから再取得した実体でも同じhashである。
 
 実装はGPT-6.1 sol、完了前にfresh contextで単純さ・既存機能への委譲・必要なテスト・利用手順を確認する。検証済みの単位で日本語commitを作り、安全確認後にpush、PR作成、mergeまで進める。
+
+## 接続前の限定確認
+
+Git外で`@dataiku/uv@0.12.0`をscripts無効で導入し、managed Python3.12.13の取得と、現lockに対する`sync --locked --no-dev --no-install-project --dry-run`が成功した。再解決は発生しなかった。実際の依存同期と検査起動は配布物で検証する。
+
+wrapperの`bin.cjs`は内部でspawnSyncを使うため、外側Nodeの終了だけではuvを確実に回収できない。また初回のbinaryコピーはpackage領域に書込みを要求する。npm依存として配られたplatform packageの既存uv binaryを解決して直接起動する。独自のbinary取得や展開は行わず、薄い起動処理で有限の準備待ちと終了時回収を持つ。
+
+実配布の確認で、`npm install --ignore-scripts`ではoptional packageのuvに実行権限がないことが分かった。既存wrapperの`runInstall()`は配置先を変更できず、node_modulesへのhardlink/copyとchmodを行う。この場合だけ、同梱済みbinaryを専用cacheへcopyし、実行権限を付けてからrenameで配置する。取得・展開・Python環境の構築は引き続き既存機能へ委ねる。
+
+独立レビューでは、親NodeをSIGTERMで終了すると`exit` listenerが呼ばれず、子が残ることを再現した。[signal-exit 4.1.0](https://github.com/tapjs/signal-exit)の`onExit`へ委ね、通常終了に加えてsignal終了でも回収し、signal本来の終了状態を維持する。4.1.0の公開は2023年だが、上流には2025-10の更新があり、foreground-child 4.0.3にも利用されている。子が持つsocketの閉鎖と親のSIGTERM終了を確かめる回帰試験は、修正前に失敗し修正後に成功した。
+
+## 配布物の検証結果
+
+Linux x64、Node.js 24.19.0で、repo外へ実tgzを`npm install --ignore-scripts`で導入した。空cacheからのファイル検査は11.21秒、取得後に`UV_OFFLINE=1`で行ったglob検査は5.04秒だった。これは今回の2入力と環境での導入確認であり、一般的な初回所要時間・検出性能の測定ではない。managed CPython 3.12.13が専用cacheに入り、同梱Python APIと指摘・保留・UTF-16位置が一致した。
+
+tgzは52,201,787bytes、展開した当該packageは94,103,785bytes・30ファイル。npmの依存、Python、初回取得cacheはこの容量に含まない。原コーパス・構築正本・一時環境を含まないこと、固定モデルと参照のhash、1,025記事・6,463区間の出典、ライセンス原文を検査した。Nodeの22テスト、Pythonの87テストと19subtest、Ruffが成功した。fresh contextで実装・テスト・利用手順を再レビューし、上記signal回収の修正後に追加の具体的不備は認められなかった。
+
+macOSとWindowsは同じ配布物検証をGitHub Actionsで実行する。CI結果とLFS再取得の確認は、この節へ追記する。

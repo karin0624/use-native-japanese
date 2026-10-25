@@ -1,6 +1,6 @@
 # Python APIとCLI
 
-[セットアップ](setup.md)後、出典付き正本から配布参照を作ります。`native-japanese`は`python -m native_japanese`でも呼べます。資源・原文・生成DBはGit外へ置きます。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。
+通常のtextlint利用は[セットアップ](setup.md)を参照してください。以下は[開発環境](development.md)を準備し、独自の出典付き正本から配布参照を作る手順と内部APIです。`native-japanese`は`python -m native_japanese`でも呼べます。原コーパス本文と構築用正本はGit外に置き、公開しません。配布用の固定モデルと参照DBはGit LFSで管理し、npmへ実体を同梱します。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。
 
 ## 索引準備と検査
 

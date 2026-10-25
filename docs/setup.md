@@ -1,28 +1,20 @@
-# 解析器と固定モデルのセットアップ
+# セットアップ
 
-Python 3.12以上と`uv`を使い、リポジトリのルートで実行します。現行方式はGiNZA（NER除外）で、KNP/Juman++のnative buildや大容量格フレームを要求しません。方式と検証範囲は[最新方針](compact-runtime-plan.md)、参照の構築・検査は[使い方](runtime.md)を参照してください。
-
-```sh
-uv sync --locked --extra setup
-. .venv/bin/activate
-python tools/setup-resources.py --assets-dir /path/to/assets
-```
-
-GiNZA・ja_ginza・spaCy・Sudachi辞書とベクトル依存の版は`pyproject.toml`と`uv.lock`で固定します。解析モデル・辞書はPython依存として導入し、上のscriptは固定の小型fastTextモデルを準備します。資源・原文・生成DBはGit外へ置いてください。
-
-## 既存モデルの再利用
+Node.js 20.18以上を用意します。npm registryには未公開のため、`npm pack`で作成した`textlint-rule-native-japanese-0.1.0.tgz`を利用するプロジェクトに置き、textlintと一緒に導入します。
 
 ```sh
-python tools/setup-resources.py --assets-dir /path/to/assets \
-  --reuse fasttext-ja-mini=/path/to/existing/fasttext-ja-mini --offline
+npm install --save-dev textlint ./textlint-rule-native-japanese-0.1.0.tgz
 ```
 
-`--reuse ID=PATH`は固定size/SHA-256を確認してsymlinkで参照し、実体を複製しません。参照元は利用中も保持してください。`--offline`はモデルのネットワーク取得を禁止し、不足があれば停止します。Python依存の導入をoffline化する指定ではありません。既存fileの不一致は上書きや別モデルへの置換で解消しません。
+検査するファイル、またはパスを指定します。
 
-資源のID・相対path・取得URL・期待size/hashは[native-assets.json](../src/native_japanese/data/native-assets.json)が正本です。対象は`fasttext-ja-mini`、21,944,687 bytesです。取得は既知size/hashとEOFを確認してから完成先へ公開し、モデル利用時にも同じbytesと依存版を検査します。任意のpickleや隣接sidecarは読み込みません。
+```sh
+npx textlint --rule native-japanese README.md
+npx textlint --rule native-japanese "docs/**/*.md"
+```
 
-## 出自と確認範囲
+初回の検査では実行環境を自動で準備します。ネットワーク接続とダウンロード・展開のための時間、ディスク空き容量が必要です。準備した環境は利用者のcacheに保存し、次回から再利用します。モデルと参照DBはパッケージに同梱しています。
 
-モデルはLiebl Bernhard, Compressed fastText Embeddings, v1.0, 2021-06-07、[Zenodo 10.5281/zenodo.4905385](https://doi.org/10.5281/zenodo.4905385)の圧縮版です。説明本文のCC BY-SA 3.0と機械metadataのCC BY 4.0に不一致があり、圧縮前の厳密snapshotは未確認です。SHAは保存済み取得値を固定期待値として使い、公式公開SHAとの照合とは称しません。導入成功を再配布条件の確定とは扱いません。
+対象環境はLinux（glibc 2.28以上、x64・arm64）、macOS 13以上（x64・arm64）、Windows 10以上（x64）です。各環境の起動確認状況は[配布方針と検証](npm-distribution-plan.md)を参照してください。
 
-モデル単体の容量は総導入容量ではありません。解析辞書・Python依存・配布参照・一時領域を含む実容量は別に確認します。旧KNPのbuild・資源検証記録はGit履歴と[旧検証結果](runtime-validation.md)に保持し、現行の導入手順や成績へ転用しません。
+検査範囲・指摘位置の仕様は[textlint接続](textlint.md)、開発環境や独自参照の構築は[開発者向け手順](development.md)を参照してください。
