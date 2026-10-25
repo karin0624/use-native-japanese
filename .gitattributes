@@ -1,0 +1,2 @@
+packages/textlint-rule-native-japanese/assets/reference.sqlite3 filter=lfs diff=lfs merge=lfs -text
+packages/textlint-rule-native-japanese/assets/fasttext-ja-mini filter=lfs diff=lfs merge=lfs -text

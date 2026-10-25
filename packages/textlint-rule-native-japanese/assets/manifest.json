@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "reference": {
+    "file": "reference.sqlite3",
+    "bytes": 71204864,
+    "sha256": "44d549d8fc32339398e6a1a8c80ac840b4219c5e37187b61e56bfc56312e97de",
+    "license": "CC-BY-SA-4.0"
+  },
+  "model": {
+    "file": "fasttext-ja-mini",
+    "bytes": 21944687,
+    "sha256": "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7",
+    "license": "CC-BY-SA-3.0",
+    "source": "https://doi.org/10.5281/zenodo.4905385",
+    "version": "1.0",
+    "sourceChecksum": "md5:6f50bff91970a95743040320f76872ef",
+    "recordLicense": "CC-BY-4.0",
+    "modified": false
+  },
+  "provenance": {
+    "sourcesFile": "sources.json",
+    "sourcesSha256": "0f3ca30a36145f1c8368eb029385c1557fb8d2df0299503207ea66953484f50c",
+    "selectionManifestSha256": "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d",
+    "referenceTransformation": "GiNZA公開lemmaから抽出した用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。",
+    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v1"
+  }
+}
