@@ -17,7 +17,7 @@ npx textlint --rule preset-native-japanese README.md
 npx textlint --rule preset-native-japanese "docs/**/*.md"
 ```
 
-語の使い方への指摘は`error`、辞書・解析の対応不足は`warning`として表示されます。`warning`だけなら終了値は0、`error`があれば1です。指摘の意味と、検査自体の失敗との違いは[指摘の読み方](textlint.md#指摘の読み方)を参照してください。
+用例の支持があれば無出力、支持がなければ書き手への通常の`error`、解析や資源破損などの処理異常は`systemerror`となります。textlintは指摘なしなら終了値0、文章への`error`があれば1を返し、処理異常も失敗として終了します。指摘の意味と、検査自体の失敗との違いは[指摘の読み方](textlint.md#指摘の読み方)を参照してください。
 
 初回の検査では実行環境を自動で準備します。ネットワーク接続とダウンロード・展開のための時間、ディスク空き容量が必要です。準備した環境は利用者のcacheに保存し、次回から再利用します。モデルと参照DBはパッケージに同梱しています。利用者がPythonを準備する必要はありません。
 
@@ -25,9 +25,11 @@ npx textlint --rule preset-native-japanese "docs/**/*.md"
 
 ## cloneして開発・検証する
 
-GitとGit LFSを用意し、cloneしたリポジトリのルートで実行します。
+GitとGit LFSを用意し、以下を順に実行します。`cd use-native-japanese`で入るリポジトリのルートは、`package.json`と`.textlintrc.cjs`があるディレクトリです。他のプロジェクトへのパッケージ導入とは異なり、checkoutのソースを使います。
 
 ```sh
+git clone https://github.com/karin0624/use-native-japanese.git
+cd use-native-japanese
 git lfs install
 git lfs pull
 npm ci

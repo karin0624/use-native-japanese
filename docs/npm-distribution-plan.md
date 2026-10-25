@@ -6,19 +6,19 @@
 
 公開前は`npm pack`で作ったtgzを、textlintと一緒に別のprojectへ導入する。ファイルには`npx textlint --rule preset-native-japanese README.md`、範囲には`npx textlint --rule preset-native-japanese "docs/**/*.md"`を使い、commandや資源pathの設定を不要にする。npm registryには公開しない。README・setupにはこの利用手順と必要な前提だけを記載し、構築や内部APIは開発者文書へ分ける。
 
-## 指摘と対応不足を分けるプリセット（課題8）
+## 三つの結果を返すプリセット（課題8）
 
-[課題8](https://github.com/karin0624/use-native-japanese/issues/8)で、package名を`textlint-rule-preset-native-japanese`、指定を`--rule preset-native-japanese`へ変更する。語の使い方への正常な指摘を`usage`の`error`、辞書・解析の対応不足を`coverage`の`warning`として返す。textlint出力のruleIdは`native-japanese/usage`と`native-japanese/coverage`になる。`warning`だけなら終了値0、本文への`error`を含むと1とし、例外や壊れたデータによる処理失敗を別に扱う。用例未収録を日本語全体での不存在と同一視しない。
+[課題8](https://github.com/karin0624/use-native-japanese/issues/8)の配布名`textlint-rule-preset-native-japanese`と指定`--rule preset-native-japanese`を維持する。ルールは`usage`一つ、textlint出力のruleIdは`native-japanese/usage`とする。用例の支持ありは正常無出力、支持なしは文章への通常の`error`、解析や資源破損などの処理異常は`systemerror`とする。辞書不足warningや保留状態は返さない。用例未収録を日本語全体での不存在と同一視しない。
 
-cloneしたrepoは既存の`.textlintrc.cjs`からcheckoutのPythonを直接使う。共通の`command`を一か所で定義し、両ルールに`command`と各`severity`を明示する。利用側でsubruleの設定を上書きすると、プリセットのseverityが引き継がれない[textlint #1606](https://github.com/textlint/textlint/issues/1606)に従う。導入試験はファイル・globを指定する経路を維持し、公開Python CLIから期待するメッセージ・位置・severityを組み立てる。終了値の区別は既存の人工workerで確認し、自然文のモデル結果を固定しない。以下の課題4のCI結果・容量・hashは当時の配布物の記録であり、改名後の配布物の検証結果ではない。
+cloneしたrepoは既存の`.textlintrc.cjs`からcheckoutのPythonを直接使い、`usage`に`command`と`severity: "error"`を明示する。プリセット内の設定上書きでseverityが引き継がれない[textlint #1606](https://github.com/textlint/textlint/issues/1606)に従う。導入試験はファイル・globの経路を維持し、公開Python CLIから期待するメッセージ・位置を組み立てる。人工workerの試験は通信と結果の区別を確認し、自然文の判定を固定しない。以下の課題4のCI結果・容量・hashは当時の配布物の履歴であり、現行の三結果契約や再生成後の参照の検証結果ではない。
 
 ## 管理と同梱
 
-参照DB71,204,864bytesと未変更fasttext-ja-mini21,944,687bytesを、npm package内のassetsへGit LFSで追跡する。通常Gitにはpointerとsize/hash/出典manifest/帰属表示を保持する。LFSはGit履歴を軽くする仕組みであり、各変更版の実体保存・開発者とCIの取得費用は残る。[GitHub仕様](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage)、[利用量の扱い](https://docs.github.com/en/billing/concepts/product-billing/git-lfs)。
+配布用参照DBと未変更fasttext-ja-mini21,944,687bytesを、npm package内のassetsへGit LFSで追跡する。通常Gitにはpointerとsize/hash/出典manifest/帰属表示を保持する。LFSはGit履歴を軽くする仕組みであり、各変更版の実体保存・開発者とCIの取得費用は残る。[GitHub仕様](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage)、[利用量の扱い](https://docs.github.com/en/billing/concepts/product-billing/git-lfs)。
 
 配布時には実体を取得し、npmのfilesを明示して同梱する。Git LFSの取得はCIのcheckoutで明示する。npm利用者はtarballから実体を受け取り、Git LFSを必要としない。pointerや異なるhashの資源をpack・起動前に拒否する。[npmのfiles](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#files)、[checkout設定](https://github.com/actions/checkout#usage)。
 
-参照は既存の1,025記事・6,463区間からの成果をそのまま使う。原文と構築用正本は同梱しない。モデルの上流CC BY-SA3.0とZenodo側の表示を保持し、派生DBは後継条件CC BY-SA4.0とする。記事ID・題名・URL・区間IDを別の出典manifestに収録する。製品コードの新たな公開ライセンスをこの作業で選定しない。
+参照は既存の1,025記事・6,463区間の本文を、修正後の同じ解析契約で再抽出・再生成して使う。原文と構築用正本は同梱しない。モデルの上流CC BY-SA3.0とZenodo側の表示を保持し、派生DBは後継条件CC BY-SA4.0とする。記事ID・題名・URL・区間IDを別の出典manifestに収録する。製品コードの新たな公開ライセンスをこの作業で選定しない。
 
 ## Python実行環境を既存uvへ委ねる
 
@@ -35,7 +35,7 @@ npm側は独自postinstallを置かず、最初のtextlint検査前にuvでmanag
 ## 残る仮説だけを検証する
 
 1. 固定uv0.12.0が現lockを`--locked`で読み、managed Python3.12.13へ同期できる。失敗したら具体的な版・lock形式の原因を確認し、この方針を更新してから変更する。
-2. repo外へのtgz導入から、PATHのPythonや既存project環境に頼らず実textlintをファイル・globへ適用できる。指摘・保留・位置は同じPython検査結果を保持する。
+2. repo外へのtgz導入から、PATHのPythonや既存project環境に頼らず実textlintをファイル・globへ適用できる。指摘・位置は同じPython検査結果を保持する。
 3. 同時要求で初期化やworkerを競合させず、初回準備失敗・資源改変・pointer混入を成功として隠さない。取得済み環境ではnetworkなしでも実行できる。言語精度の再測定は行わない。
 4. npm同梱物に資源実体・検査実装・帰属が入り、原文・秘密・構築正本・一時環境が入らない。LFSから再取得した実体でも同じhashである。
 

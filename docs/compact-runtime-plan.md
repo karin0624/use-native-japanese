@@ -4,7 +4,7 @@
 
 ## 目的と今回の許容範囲
 
-語の使い方を位置付きで指摘し、所定形式の情報追加によって改善できる目的を保つ。利用者は、近似集合索引が未登録の組合せを低い確率で登録済みと誤認することを許容した。これは見逃し側の誤差であり、実用例を直接確認したという表示にはしない。未観測を誤用と断定せず、既存の一般化と比較不能の区別を保つ。
+語の使い方を位置付きで指摘し、所定形式の情報追加によって改善できる目的を保つ。利用者は、近似集合索引が未登録の組合せを低い確率で登録済みと誤認することを許容した。これは見逃し側の誤差であり、実用例を直接確認したという表示にはしない。既存の名詞一般化を維持し、支持のない関係は通常の文章指摘とする。支持の欠如を日本語全体での不存在と断定しない。
 
 用例の保存形式だけでなく、KNP自身が必要とする大容量辞書も見直すことが今回の依頼に含まれる。KNP固有の表記、完全な意味格、旧格フレームとの互換を目的より強い条件にしない。一方、別解析の関係を同一視したり、手書きの構文・活用・助詞規則で埋めたりしない。
 
@@ -22,7 +22,7 @@
 
 集合索引の根拠は[Binary Fuse論文](https://arxiv.org/abs/2201.01174)、[保守中のPython実装](https://github.com/FastFilter/pyfusefilter)、[C側の小集合構築の修正](https://github.com/FastFilter/xor_singleheader/issues/77)、[MARISA](https://github.com/pytries/marisa-trie)、[Bloom実装](https://github.com/barrust/pyprobables)。`pyxorfilter`はアーカイブ済みなので採用候補にしない。Fuse16の約18bit/件、誤認率1/65,536は一照会の目安で、語彙・出典・群統計・構築時メモリを含まない。候補を複数照会する場合の誤通過を別に数える。
 
-解析側は[GiNZAの公式文節API](https://github.com/megagonlabs/ginza/blob/v5.3.0/docs/bunsetu_api.md)、[GiNZAの研究](https://www.jstage.jst.go.jp/article/jnlp/27/3/27_695/_article/-char/ja/)、[既存の解析調査](parser-investigation.md)と保存済み出力を根拠にする。GiNZA 5.3.0と互換性のあるSudachi辞書を固定し、最新辞書を無条件に組み合わせない。旧GiNZA試作の全2〜4頂点の列挙と、全未観測の警告には戻らない。
+解析側は[GiNZAの公式文節API](https://github.com/megagonlabs/ginza/blob/v5.3.0/docs/bunsetu_api.md)、[GiNZAの研究](https://www.jstage.jst.go.jp/article/jnlp/27/3/27_695/_article/-char/ja/)、[既存の解析調査](parser-investigation.md)と保存済み出力を根拠にする。GiNZA 5.3.0と互換性のあるSudachi辞書を固定し、最新辞書を無条件に組み合わせない。旧GiNZA試作の全2〜4頂点の列挙には戻らない。現行の文章指摘は、文節APIによる対象関係についてBloomと名詞一般化の双方で支持がない場合に返す。
 
 ## 検証する仮説と順序
 
@@ -45,17 +45,19 @@ GiNZAの固定38本文と追加参照8本文は、本文と原文位置を保持
 
 3辺の不列挙は、NERの認識範囲内で文節主辞を除去するGiNZAの既存処理に由来した。この照合では固有表現の種別を使わないため、公開設定`spacy.load("ja_ginza", exclude=["ner"])`で不要なNERを除く案を、同じ46本文に限定して確認する。parserはNERより前に実行され、残る学習器はtok2vecの出力を参照するので、token・lemma・品詞・元依存は不変で、文節構成だけが変わると予測する。別の1件の句取り違えはNEに由来せず、直ると予測しない。新たな句の変化も記録し、局所改善を全体の精度向上と読み替えない。
 
-NER除外の確認では、固定46本文と既知性能用3本文のtoken全属性・本文・文境界が不変で、上の3辺を公式APIから取得できた。主対象等の7追跡関係も不変だった。候補keyの差は追加10・削除7で、参照を同じ設定で再生成する必要がある。残る1件は比較対象の品詞対ではなかった。採用する接続では、phraseが元Tokenを含むという機械的条件を比較前に確認し、不適合を比較不能へ残す。語や構文の修復は行わない。
+NER除外の確認では、固定46本文と既知性能用3本文のtoken全属性・本文・文境界が不変で、上の3辺を公式APIから取得できた。主対象等の7追跡関係も不変だった。候補keyの差は追加10・削除7で、参照を同じ設定で再生成する必要がある。残る1件は比較対象の品詞対ではなかった。採用する接続では、phraseが元Tokenを含むという機械的条件を比較前に確認し、不適合は処理異常として返す。語や構文の修復は行わない。
 
 ## 製品へ接続する契約
 
-解析はGiNZA 5.3.0、ja_ginza 5.3.0、SudachiPy 0.6.11、SudachiDict-core 20260723、spaCy 3.8.16、NER除外で固定する。新契約を`ginza-bunsetu-lemma-no-ner-v1`とし、旧KNPの用例JSONLを自動変換しない。旧データは旧branchと記録へ保持する。
+解析はGiNZA 5.3.0、ja_ginza 5.3.0、SudachiPy 0.6.11、SudachiDict-core 20260723、spaCy 3.8.16、NER除外で固定する。新契約を`ginza-bunsetu-lemma-no-ner-v2`とし、旧KNPの用例JSONLを自動変換しない。旧データは旧branchと記録へ保持する。
+
+GiNZAの既存`bunsetu_phrase_span`へkeyword引数`use_token_head=False`を追加する最小修正を使う。`True`の場合だけ既存探索の開始点を文節span.rootから指定Tokenへ変える。文法・lemma・依存辺・文節境界は変更しない。これにより自然参照で観測した元Tokenを含まないphraseを修正し、全6,463本文から参照を再生成する。修正版wheel、上流hash、差分、MIT帰属を`vendor/ginza`へ保持し、uvのlocal path sourceで固定する。既存のv1契約の参照とは混用しない。
 
 照会は、公開phrase全体のlemma配列としての`predicate`と`noun`、元主辞の`predicate_type`と`noun_type`、元依存ラベル`dependency`、名詞の元方向`noun_role`（head/dependent）で表す。名詞がNOUN/PROPN、もう一端がVERB/ADJの関係を両方向で選ぶ。元位置・表層は別途保持する。主辞一語への縮約や述語類義語への置換はしない。
 
 出典付きJSONLと重複排除用SQLiteを構築・監査の正本にし、検査側はコンパイルした参照だけを読む。集合索引へは照会全体のcanonical JSONを入れる。一般化群は名詞lemma配列以外の照会条件を固定し、異なる名詞配列を等票として、既存fastTextによる成分合成ベクトルの平均と比較可能件数を事前計算する。別出典の重複で加点しない。実行時に同じ条件の群へ入力名詞の方向を比較し、暫定境界0.35を変更しない。新しい群契約の値は旧格フレームの値と同一とは扱わない。
 
-参照には集合索引・群平均・件数・正規化契約・固定資源の識別情報を保存する。近似一致は`indexed`として返し、「実用例を直接確認済み」とは表示しない。陰性だけでは警告せず、比較可能な群の低支持を指摘する。未収録群・ベクトル不能・解析情報不足を別の不能理由で残す。原文全文・全出典・全用例の個別ベクトルは検査時に必須としない。訂正候補は今回追加しない。
+参照には集合索引・群平均・件数・正規化契約・固定資源の識別情報を保存する。近似一致は`indexed`として返し、「実用例を直接確認済み」とは表示しない。Bloom陰性で名詞群との類似度0.35以上の支持もなければ、通常の文章へのerrorを返す。未収録群やベクトル不能は追加支持なしとし、類似度0へ置換しない。解析失敗や資源破損、不正な数値はsystemerrorとする。原文全文・全出典・全用例の個別ベクトルは検査時に必須としない。訂正候補は今回追加しない。
 
 自然参照の検証は、保存済みMIRACL bucket0から記事IDのSHA256順（prefixは`compact-runtime-reference-v1:`）で1024記事を選び、その全区間を使う。64・256・1024記事を同じ順序のprefixとする。評価記事987571・1648886、既使用診断の出典記事、追加記事3066353を除外する。選択を採点前に保存し、未収録語があっても結果に合わせて選び直さない。追加8区間は独立の増分として扱う。人工100万keyの容量確認と、日本語の指摘結果を混同しない。
 
@@ -65,12 +67,12 @@ NER除外の確認では、固定46本文と既知性能用3本文のtoken全属
 
 容量削減と目的への適合を実測で示せた構成を採用する。全用例収録、全例の正答、訂正案は追加の完了条件にしない。元資料・構築用の正本はGit外に保持する。配布用の固定モデルと参照DBは、後に決定した[配布方針](npm-distribution-plan.md)に従いGit LFSで管理する。
 
-## 指摘・辞書不足・処理異常の区別（2026-10-25）
+## 三つの結果と資源の役割（2026-10-25）
 
-用例照合による語の使い方への指摘は、検査器の正常な結果としてerrorを返す。個別の辞書に必要な情報がなく検査できない場合はwarningを返す。プログラムの例外や不正な数値は処理失敗とし、辞書の未収録へ読み替えない。用例辞書に記録がないことと、日本語全体にその用法が存在しないことも区別する。
+結果は、用例による支持ありで正常無出力、支持なしで書き手への通常のerror、解析・資源破損などの処理異常でsystemerrorの三つとする。辞書不足warnや第四の保留状態は設けない。Bloom陽性、または同じ述語・関係条件の用例名詞群との類似度0.35以上を支持とする。支持の欠如を日本語全体での不存在の証明とはしない。
 
-付属の圧縮モデルでは、語彙にない語を文字ngramで補う。ただし、5文字のngramを作れない短い語や、該当するngramを圧縮時に削除した語には、比較に使う情報がない。[compress-fasttext作者の説明](https://github.com/avidale/compress-fasttext/issues/15#issuecomment-1178592339)と[gensimの実装](https://github.com/piskvorky/gensim/blob/4.4.0/gensim/models/fasttext.py#L996)で、この場合のゼロベクトルは仕様どおりと確認した。READMEの「用例」「述語」などもこの条件に当たる。「データを取得できない」とは表示せず、不足する語を明示する。未知語でもngramから比較できる値が得られれば利用する。
+Sudachiの形態素辞書は語・品詞・活用の解析を担い、既存の圧縮fastTextは名詞一般化のための別資源である。「付属の単語辞書」という呼び方はこの圧縮ベクトルの誤称だった。全語を登録する独自辞書や未知語用の語例・構文ルールは作らない。
 
-単語の情報がある場合でも、合成や平均で値が打ち消し合うことがある。これを単語の未収録とは表示しない。保存済みの用例辞書は、比較できない用例の理由を個別には持たないため、集約した理由から不足の原因を推測しない。配列の形状不正、非有限値、ライブラリの例外は通常の比較不能へ変換せず、検査失敗として返す。
+圧縮fastTextは語彙にない語を文字ngramで補う。ただし、5文字のngramを作れない短い語や該当ngramを圧縮時に削除した語ではゼロベクトルになる。[compress-fasttext作者の説明](https://github.com/avidale/compress-fasttext/issues/15#issuecomment-1178592339)と[gensimの実装](https://github.com/piskvorky/gensim/blob/4.4.0/gensim/models/fasttext.py#L996)で確認した。合成・平均が打ち消し合う場合もある。これらは類似度0として扱わず、名詞一般化による追加支持がないものとする。配列形状不正、非有限値、ライブラリの例外は処理異常とする。
 
-textlintの推奨APIではseverityはルールごとに設定する。[issue #144](https://github.com/textlint/textlint/issues/144#issuecomment-195730081)で非推奨と説明された、報告オブジェクトでseverityを上書きする経路は使わない。[公式のpreset試験](https://github.com/textlint/textlint/blob/v15.8.0/packages/textlint/test/cli-snapshot-test/rule_modules/textlint-rule-preset-test/index.js)に従い、error用の`usage`とwarning用の`coverage`を一つのプリセットにまとめる。配布名を`textlint-rule-preset-native-japanese`、指定を`--rule preset-native-japanese`へ変更することは利用者の承認済み。同じ文書・同じ検査設定では解析結果を共有し、二重に解析しない。cloneしたリポジトリでは引き続き`npx textlint 対象パス`を使う。
+配布名`textlint-rule-preset-native-japanese`と指定`--rule preset-native-japanese`を維持し、ルールはerror用の`usage`一つにする。正常な指摘と処理異常は別経路で返す。cloneしたリポジトリでは`npx textlint 対象パス`を使う。

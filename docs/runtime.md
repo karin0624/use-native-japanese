@@ -34,16 +34,15 @@ with Inspector(
     results = inspector.lint_many(["一つ目の本文。", "二つ目の本文。"])
 ```
 
-同じ`Inspector`が解析器と参照を再利用します。`analyze`は解析関係・端点・不能理由、`lint`と`lint_many`は照会結果と指摘も返します。Python内の位置は0始まり・終端を含まない文字添字です。`with`を使わない場合は`close()`で解放します。原文との位置不一致や契約不一致は処理エラーです。
+同じ`Inspector`が解析器と参照を再利用します。`analyze`は解析関係と端点、`lint`と`lint_many`は照会結果と指摘も返します。Python内の位置は0始まり・終端を含まない文字添字です。`with`を使わない場合は`close()`で解放します。原文との位置不一致や契約不一致は処理エラーです。
 
 | `result.relations`のstatus | 意味 |
 | --- | --- |
 | `indexed` | Bloom近似索引で陽性。低確率の誤通過があり、実用例の直接確認ではない |
 | `supported` | 索引は陰性で、比較可能な支持が境界以上 |
-| `review` | 索引は陰性で、比較可能な支持が境界未満 |
-| `unavailable` | 比較可能な数値がなく、理由を保持する |
+| `review` | 索引は陰性で、名詞一般化の追加支持もない |
 
-陰性だけでは語の使い方を指摘しません。`review`では名詞・述語それぞれの端点へ指摘を返します。`score`は同じ条件の名詞群平均の方向への類似度で、正誤確率ではありません。不能を0へ置き換えず、未収録群・ベクトル不能・解析情報不足の理由を残します。指摘が空でも全文を判定できたとは限りません。訂正案は未実装です。
+`indexed`と`supported`は指摘なし、`review`は名詞・述語それぞれの端点へ通常の指摘を返します。`score`は同じ述語・関係条件の名詞群平均の方向への類似度で、正誤確率ではありません。ベクトルや比較群がない場合は数値0を捏造せず、追加支持なしとして`review`になります。参照に支持がないことは、日本語全体での不存在の証明ではありません。解析の失敗、資源破損、不正な数値や契約不一致は処理異常であり、正常な指摘へ変換しません。訂正案は未実装です。
 
 ## JSONLで常駐させる
 
@@ -51,11 +50,9 @@ with Inspector(
 native-japanese serve --reference "$REFERENCE" --assets-dir "$ASSETS"
 ```
 
-stdinへ`{"id":"1","texts":["一つ目の本文。","二つ目の本文。"]}`を1行ずつ送ると、同じ`id`と同じ順序の`results`を返します。`lint`・`serve`の結果には`offsetEncoding: "utf-16"`、`diagnostics`、`relations`、`unavailable`が含まれ、全範囲をUTF-16へ変換します。要求単位の失敗は`error.message`で返し、後続要求を受け付けます。
+stdinへ`{"id":"1","texts":["一つ目の本文。","二つ目の本文。"]}`を1行ずつ送ると、同じ`id`と同じ順序の`results`を返します。`lint`・`serve`の結果には`offsetEncoding: "utf-16"`、`diagnostics`、`relations`が含まれ、全範囲をUTF-16へ変換します。要求単位の処理異常は`error.message`で返し、後続要求を受け付けます。
 
-`unavailable`は`kind`（`analysis`または`reference`）、理由`reason`、端点範囲配列`ranges`を持ちます。textlintは`coverage`ルールの`warning`として「判定できません。」に理由を続けて表示します。これは文章に誤りがあるという指摘ではありません。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
-
-`diagnostics`は語の使い方について確認を促す正常な検査結果で、textlintでは`usage`ルールの`error`になります。`unavailable`も正常な応答の一部で、用例未収録や解析の対応不足を表します。未収録だけで、その使い方が日本語全体に存在しないとは判断しません。例外や不正なデータにより検査を完了できない場合は、これらと分けて処理失敗として返します。Pythonの`lint`は正常なJSON出力なら指摘の有無によらず終了値0です。textlintは`warning`だけなら0、本文への`error`を含むと1を返します。
+`diagnostics`は語の使い方について確認を促す正常な検査結果で、textlintでは`usage`ルールの`error`になります。支持ありなら空配列です。解析や資源破損などの処理異常は、これらと分けてtextlintの`systemerror`となります。Pythonの`lint`は正常なJSON出力なら指摘の有無によらず終了値0です。textlintは指摘なしなら0、文章への`error`を含むと1を返し、処理異常も失敗として終了します。通信とMarkdown位置対応の詳細は[textlint接続](textlint.md)を参照してください。
 
 ## 出典付き用例を追加する
 
@@ -75,7 +72,7 @@ native-japanese prepare --examples "$ARCHIVE" --reference "$REFERENCE" --assets-
 | キー | 内容 |
 | --- | --- |
 | `schema_version` | 整数`2` |
-| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-v1` |
+| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-v2` |
 | `predicate`・`noun` | 公開句全体の空でないlemma文字列配列 |
 | `predicate_type` | `VERB`または`ADJ` |
 | `dependency` | 元依存ラベル（空でない文字列） |
