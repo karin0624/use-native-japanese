@@ -4,7 +4,13 @@
 
 ## 完成時の利用方法
 
-公開前は`npm pack`で作ったtgzを、textlintと一緒に別のprojectへ導入する。ファイルには`npx textlint --rule native-japanese README.md`、範囲には`npx textlint --rule native-japanese "docs/**/*.md"`を使い、commandや資源pathの設定を不要にする。npm registryには公開しない。README・setupにはこの利用手順と必要な前提だけを記載し、構築や内部APIは開発者文書へ分ける。
+公開前は`npm pack`で作ったtgzを、textlintと一緒に別のprojectへ導入する。ファイルには`npx textlint --rule preset-native-japanese README.md`、範囲には`npx textlint --rule preset-native-japanese "docs/**/*.md"`を使い、commandや資源pathの設定を不要にする。npm registryには公開しない。README・setupにはこの利用手順と必要な前提だけを記載し、構築や内部APIは開発者文書へ分ける。
+
+## 指摘と対応不足を分けるプリセット（課題8）
+
+[課題8](https://github.com/karin0624/use-native-japanese/issues/8)で、package名を`textlint-rule-preset-native-japanese`、指定を`--rule preset-native-japanese`へ変更する。語の使い方への正常な指摘を`usage`の`error`、辞書・解析の対応不足を`coverage`の`warning`として返す。textlint出力のruleIdは`native-japanese/usage`と`native-japanese/coverage`になる。`warning`だけなら終了値0、本文への`error`を含むと1とし、例外や壊れたデータによる処理失敗を別に扱う。用例未収録を日本語全体での不存在と同一視しない。
+
+cloneしたrepoは既存の`.textlintrc.cjs`からcheckoutのPythonを直接使う。共通の`command`を一か所で定義し、両ルールに`command`と各`severity`を明示する。利用側でsubruleの設定を上書きすると、プリセットのseverityが引き継がれない[textlint #1606](https://github.com/textlint/textlint/issues/1606)に従う。導入試験はファイル・globを指定する経路を維持し、公開Python CLIから期待するメッセージ・位置・severityを組み立てる。終了値の区別は既存の人工workerで確認し、自然文のモデル結果を固定しない。以下の課題4のCI結果・容量・hashは当時の配布物の記録であり、改名後の配布物の検証結果ではない。
 
 ## 管理と同梱
 

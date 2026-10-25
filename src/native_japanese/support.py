@@ -18,6 +18,15 @@ class Support:
     total: int = 0
 
 
+def _checked_vector(value, size, subject):
+    vector = np.asarray(value, dtype=np.float64)
+    if vector.shape != (size,):
+        raise ValueError(f"{subject}の次元数が不正です。")
+    if not np.isfinite(vector).all():
+        raise ValueError(f"{subject}に、無限大や数値でない値が含まれています。")
+    return vector
+
+
 class Vectors:
     """公開合成APIへlemma列を渡す。独自の表記分割はしない。"""
 
@@ -27,38 +36,42 @@ class Vectors:
 
     def _component(self, noun):
         if not noun:
+            raise ValueError("比較する語が空です。解析結果を確認してください。")
+        # FastTextは未知語にもTrueを返すため、既存の文字ngramによる合成を利用できる。
+        if noun not in self.model:
             return None
-        try:
-            vector = np.asarray(self.model.get_vector(noun), dtype=np.float64)
-        except (KeyError, ValueError, TypeError):
-            return None
-        if vector.shape != (self.model.vector_size,) or not np.isfinite(vector).all():
-            return None
+        vector = _checked_vector(
+            self.model.get_vector(noun), self.model.vector_size, f"単語辞書の「{noun}」の値"
+        )
         magnitude = float(norm(vector))
-        if not math.isfinite(magnitude) or magnitude == 0:
+        if not math.isfinite(magnitude):
+            raise ValueError(f"単語辞書の「{noun}」の値を正規化できません。")
+        if magnitude == 0:
             return None
         return vector / magnitude
 
     def compose(self, components):
         if not components:
-            return None, "比較する語がありません。"
+            raise ValueError("比較する語がありません。解析結果を確認してください。")
         vectors = [self.component(lemma) for lemma in components]
-        if any(vector is None for vector in vectors):
-            return None, "この語句を用例と比較するためのデータを取得できません。"
-        try:
-            vector = np.asarray(
-                self.model.get_mean_vector(
-                    vectors, pre_normalize=False, post_normalize=True, ignore_missing=False
-                ),
-                dtype=np.float64,
-            )
-        except (KeyError, ValueError, TypeError):
-            return None, "この語句を用例と比較するためのデータを取得できません。"
-        if vector.shape != (self.model.vector_size,) or not np.isfinite(vector).all():
-            return None, "語句を比較するための計算結果を利用できません。"
+        missing = dict.fromkeys(
+            lemma for lemma, vector in zip(components, vectors) if vector is None
+        )
+        if missing:
+            words = "、".join(f"「{lemma}」" for lemma in missing)
+            return None, f"{words}を比較するための情報が、付属の単語辞書にありません。"
+        vector = _checked_vector(
+            self.model.get_mean_vector(
+                vectors, pre_normalize=False, post_normalize=True, ignore_missing=False
+            ),
+            self.model.vector_size,
+            "語句を比較するための計算結果",
+        )
         magnitude = float(norm(vector))
-        if not math.isfinite(magnitude) or magnitude == 0:
-            return None, "語句を比較するための計算で、比較に使える値が得られませんでした。"
+        if not math.isfinite(magnitude):
+            raise ValueError("語句を比較するための計算結果を正規化できません。")
+        if magnitude == 0:
+            return None, "語を組み合わせた計算結果がゼロになり、用例と比較できません。"
         return vector / magnitude, None
 
 
@@ -73,27 +86,29 @@ def group_mean(nouns, vectors):
             comparable += 1
             mean += (vector - mean) / comparable
     if not comparable:
-        return None, 0, total, "収録された用例のデータを比較に使えません。"
+        reason = "収録用例を比較に使えません。" if total else "比較に使う用例がありません。"
+        return None, 0, total, reason
     if not np.isfinite(mean).all():
-        return (
-            None,
-            comparable,
-            total,
-            "用例を比較するための計算結果に、無限大や数値でない値が含まれています。",
-        )
+        raise ValueError("用例を比較するための計算結果に、無限大や数値でない値が含まれています。")
     if norm(mean) == 0:
         return mean, comparable, total, "用例を比較するための計算結果がゼロになりました。"
-    reason = "一部の用例は比較に使えません。" if comparable < total else None
+    reason = "収録用例の一部は比較に使えません。" if comparable < total else None
     return mean, comparable, total, reason
 
 
 def direction(x, mean):
     """同じ固定平均の方向への内積を返す。不能を支持ゼロへ変換しない。"""
-    if x.shape != mean.shape or not np.isfinite(mean).all() or not np.isfinite(x).all():
-        return None
+    if x.ndim != 1 or mean.shape != x.shape:
+        raise ValueError("用例との比較に使う値の次元数が一致しません。")
+    x = _checked_vector(x, x.size, "比較対象の値")
+    mean = _checked_vector(mean, x.size, "比較する用例の値")
     magnitude = float(norm(mean))
     x_magnitude = float(norm(x))
-    if magnitude == 0 or x_magnitude == 0 or not all(map(math.isfinite, (magnitude, x_magnitude))):
+    if not all(map(math.isfinite, (magnitude, x_magnitude))):
+        raise ValueError("用例との比較に使う値を正規化できません。")
+    if magnitude == 0 or x_magnitude == 0:
         return None
     score = float(np.dot(x, mean)) / magnitude
-    return score if math.isfinite(score) else None
+    if not math.isfinite(score):
+        raise ValueError("用例との比較結果に、無限大や数値でない値が含まれています。")
+    return score

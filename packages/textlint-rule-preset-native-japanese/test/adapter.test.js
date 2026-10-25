@@ -1,27 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { createLinter, loadTextlintrc } from "textlint";
-import rule from "../src/index.js";
+import preset from "../src/index.js";
 import { configuration, getWorker, Worker } from "../src/worker.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/worker.js", import.meta.url));
-const configFilePath = fileURLToPath(new URL("./fixtures/textlintrc.json", import.meta.url));
 
 async function setup(t, options = {}) {
     const dir = await mkdtemp(join(tmpdir(), "native-japanese-"));
     const path = join(dir, "人工記録 ; $() .log");
     const config = configuration({ command: [process.execPath, fixture, path], ...options });
-    const descriptor = (await loadTextlintrc({ configFilePath })).shallowMerge({
-        rules: [{ ruleId: "native-japanese", rule, options: config }]
-    });
+    const configFilePath = join(dir, ".textlintrc.json");
+    await writeFile(configFilePath, JSON.stringify({ rules: { "preset-native-japanese": {
+        usage: { ...preset.rulesConfig.usage, ...config },
+        coverage: { ...preset.rulesConfig.coverage, ...config }
+    } } }));
+    const descriptor = await loadTextlintrc({ configFilePath });
     const linter = createLinter({ descriptor });
     t.after(async () => { getWorker(config).close(); await rm(dir, { recursive: true, force: true }); });
-    return { linter, config, log: async () => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse) };
+    return { linter, descriptor, config, log: async () => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse) };
 }
 
 test("強調・リンクを跨いで一括送信し、見出しと絵文字の位置を原文へ戻す", async t => {
@@ -63,8 +65,8 @@ test("inline codeを連結し、code内部と周囲を跨ぐ指摘を元位置�
     assert.deepEqual((await log())[0].texts, ["🍣 PodとPodを削除する", "雲を食べる。"]);
 });
 
-test("解析情報と比較不能の保留を誤用指摘と区別し、絵文字・code・強調の原文端点へ戻す", async t => {
-    const { linter } = await setup(t);
+test("誤用指摘をerror、判定できない箇所をwarningとして元位置へ戻し、解析要求を共有する", async t => {
+    const { linter, log } = await setup(t);
     const text = "🍣 `解析保留`。`参照対象`を十分離して**比較する**。雲を食べる。";
     const { messages } = await linter.lintText(text, "文書.md");
     const expected = [
@@ -78,9 +80,40 @@ test("解析情報と比較不能の保留を誤用指摘と区別し、絵文�
         const actual = messages.find(item => item.index === start);
         assert.deepEqual(actual.range, [start, start + word.length]);
         assert.equal(actual.message, message);
+        assert.equal(actual.severity, 1);
+        assert.equal(actual.ruleId, "native-japanese/coverage");
     }
-    assert.match(messages.find(item => item.index === text.indexOf("雲")).message, /^人工fixtureの指摘/);
+    const usage = messages.find(item => item.index === text.indexOf("雲"));
+    assert.match(usage.message, /^人工fixtureの指摘/);
+    assert.equal(usage.severity, 2);
+    assert.equal(usage.ruleId, "native-japanese/usage");
     assert.equal(messages.find(item => item.index === text.indexOf("解析保留")).column, 5);
+    assert.equal((await log()).length, 1);
+});
+
+test("同じ本文とパスを再検査しても前の判定を再利用しない", async t => {
+    const { linter, log } = await setup(t);
+    const text = "解析保留。雲を食べる。";
+    const first = await linter.lintText(text, "文書.md");
+    const second = await linter.lintText(text, "文書.md");
+    assert.deepEqual(second.messages, first.messages);
+    assert.equal((await log()).length, 2);
+});
+
+test("subruleのcommandが異なるときは解析要求を共有しない", async t => {
+    const usage = await setup(t);
+    const coverage = await setup(t);
+    const linter = createLinter({ descriptor: usage.descriptor.shallowMerge({ rules: [{
+        ruleId: "native-japanese/usage", rule: preset.rules.usage,
+        options: { ...preset.rulesConfig.usage, ...usage.config }
+    }, {
+        ruleId: "native-japanese/coverage", rule: preset.rules.coverage,
+        options: { ...preset.rulesConfig.coverage, ...coverage.config }
+    }] }) });
+    const { messages } = await linter.lintText("解析保留。雲を食べる。", "文書.md");
+    assert.deepEqual(messages.map(message => message.severity), [1, 2]);
+    assert.equal((await usage.log()).length, 1);
+    assert.equal((await coverage.log()).length, 1);
 });
 
 test("保留応答の種類・理由・配列とUTF-16範囲を検証し、推測した位置を使わない", async t => {
@@ -110,7 +143,7 @@ test("codeのpadding・複数backtickと引用・リスト継続行の位置を�
 test("codeのAST・原文・tokenが一致しない場合は未検査にせずエラーにする", async () => {
     const text = "`Pod`を削除する。";
     for (const change of [{ value: "別名" }, { range: [1, 4] }, { raw: "`別名`" }]) {
-        const listeners = rule({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" } },
+        const listeners = preset.rules.usage({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" } },
             { command: [process.execPath] });
         listeners.Paragraph({ type: "Paragraph", raw: text, range: [0, text.length],
             children: [{ type: "Code", raw: "`Pod`", value: "Pod", range: [0, 5], ...change }] });

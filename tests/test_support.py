@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from gensim.models import KeyedVectors
+from gensim.models.fasttext import FastTextKeyedVectors
 
 from native_japanese.support import Vectors, direction, group_mean
 
@@ -41,15 +42,63 @@ def test_distinct_nouns_get_equal_votes_and_fixed_direction():
 def test_empty_zero_nonfinite_and_singleton_direction():
     vectors = vector_model()
     assert group_mean(iter(()), vectors)[:3] == (None, 0, 0)
-    for noun in ("零", "非有限", "未収録"):
+    for noun in ("零", "未収録"):
         assert vectors.compose((noun,))[0] is None
-    assert vectors.compose(())[0] is None
-    assert vectors.compose(("東", "西"))[0] is None
+    missing = vectors.compose(("東", "未収録", "零", "未収録"))[1]
+    assert "「未収録」" in missing and "「零」" in missing and "「東」" not in missing
+    assert missing.count("「未収録」") == 1
+    assert vectors.compose(("東", "西"))[1] != missing
+    with pytest.raises(ValueError, match="語がありません"):
+        vectors.compose(())
+    with pytest.raises(ValueError, match="語が空"):
+        vectors.compose(("",))
+    with pytest.raises(ValueError, match="非有限"):
+        vectors.compose(("非有限",))
+    with pytest.raises(ValueError):
+        group_mean(iter([("東",), ("非有限",)]), vectors)
     x, _ = vectors.compose(("東",))
     assert direction(x, x) == pytest.approx(1)
     assert direction(x, np.zeros(300)) is None
     assert direction(np.zeros(300), x) is None
-    assert direction(x, np.full(300, np.nan)) is None
+    with pytest.raises(ValueError):
+        direction(x, np.full(300, np.nan))
+    with pytest.raises(ValueError):
+        direction(x[:2], x)
     assert direction(x, x * 1e-300) == pytest.approx(1)
     mean, count, total, reason = group_mean(iter([("東",), ("西",)]), vectors)
     assert count == total == 2 and reason and direction(x, mean) is None
+
+
+def test_fasttext_unknown_words_keep_subword_vectors_and_report_zero_coverage():
+    model = FastTextKeyedVectors(vector_size=300, min_n=5, max_n=5, bucket=64)
+    model.vectors_ngrams = np.ones((64, 300), dtype=np.float32)
+    vectors = Vectors(model)
+    assert not model.has_index_for("未知の語句")
+    result, reason = vectors.compose(("未知の語句",))
+    assert reason is None and np.linalg.norm(result) == pytest.approx(1)
+    # 二文字語からは、このモデルが使う長さ5の文字ngramを作れない。
+    result, reason = vectors.compose(("短語",))
+    assert result is None and "「短語」" in reason
+    model.vectors_ngrams[:] = 0
+    result, reason = Vectors(model).compose(("未知の語句",))
+    assert result is None and "「未知の語句」" in reason
+
+
+@pytest.mark.parametrize("method", ["get_vector", "get_mean_vector"])
+@pytest.mark.parametrize("error", [KeyError, ValueError, TypeError])
+def test_dependency_failures_are_not_reported_as_missing_information(monkeypatch, method, error):
+    vectors = vector_model()
+
+    def fail(*args, **kwargs):
+        raise error("依存処理の異常")
+
+    monkeypatch.setattr(vectors.model, method, fail)
+    with pytest.raises(error, match="依存処理の異常"):
+        vectors.compose(("東",))
+
+
+def test_damaged_vector_dimensions_stop_comparison():
+    vectors = vector_model()
+    vectors.model.vectors = vectors.model.vectors[:, :2]
+    with pytest.raises(ValueError, match="次元数"):
+        vectors.compose(("東",))

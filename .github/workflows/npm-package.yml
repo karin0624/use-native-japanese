@@ -44,7 +44,7 @@ jobs:
         run: node --test tools/test-source-checkout.mjs
       - name: 配布物をGit外へpack
         shell: bash
-        run: npm pack --workspace packages/textlint-rule-native-japanese --pack-destination "$RUNNER_TEMP"
+        run: npm pack --workspace packages/textlint-rule-preset-native-japanese --pack-destination "$RUNNER_TEMP"
       - name: 配布物を別プロジェクトへnpm installして検査
         shell: bash
-        run: node tools/test-npm-package.mjs "$RUNNER_TEMP/textlint-rule-native-japanese-0.1.0.tgz"
+        run: node tools/test-npm-package.mjs "$RUNNER_TEMP/textlint-rule-preset-native-japanese-0.1.0.tgz"

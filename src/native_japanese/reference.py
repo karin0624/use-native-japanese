@@ -22,10 +22,11 @@ DIMENSION = 300
 
 # 配布済みDBの理由だけを読み替える。保存データと比較条件は変更しない。
 _LEGACY_GROUP_REASONS = {
-    "比較可能な名詞列がありません": "収録された用例のデータを比較に使えません。",
-    "群の平均が非有限です": "用例を比較するための計算結果に、無限大や数値でない値が含まれています。",
+    "比較可能な名詞列がありません": "収録用例を比較に使えません。",
+    "収録された用例のデータを比較に使えません。": "収録用例を比較に使えません。",
     "群の平均が厳密にゼロです": "用例を比較するための計算結果がゼロになりました。",
-    "群内の一部名詞列は比較不能です": "一部の用例は比較に使えません。",
+    "群内の一部名詞列は比較不能です": "収録用例の一部は比較に使えません。",
+    "一部の用例は比較に使えません。": "収録用例の一部は比較に使えません。",
 }
 
 
@@ -208,6 +209,11 @@ class Reference:
 
     @staticmethod
     def _decode_group(blob, comparable, total, reason):
+        if reason in (
+            "群の平均が非有限です",
+            "用例を比較するための計算結果に、無限大や数値でない値が含まれています。",
+        ):
+            raise ValueError("参照DBに用例の計算異常が記録されています。参照DBを確認してください。")
         if (
             type(comparable) is not int
             or type(total) is not int
@@ -257,7 +263,9 @@ class Reference:
             "SELECT mean,comparable,total,reason FROM groups WHERE key=?", (group_key(query),)
         ).fetchone()
         if row is None:
-            return Support(False, None, "比較に使える用例が収録されていません。", evidence)
+            return Support(
+                False, None, "この使い方の比較に必要な用例が、辞書に収録されていません。", evidence
+            )
         blob, comparable, total, reason = row
         mean = self._decode_group(*row)
         reason = _LEGACY_GROUP_REASONS.get(reason, reason)

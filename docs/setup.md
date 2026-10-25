@@ -4,18 +4,20 @@ Node.js 20.18以上を用意します。他のプロジェクトでの利用と�
 
 ## 他のプロジェクトで使う
 
-npm registryには未公開です。配布された`textlint-rule-native-japanese-0.1.0.tgz`を利用先のプロジェクトに置き、そのプロジェクトのルートでtextlintと一緒に導入します。
+npm registryには未公開です。配布された`textlint-rule-preset-native-japanese-0.1.0.tgz`を利用先のプロジェクトに置き、そのプロジェクトのルートでtextlintと一緒に導入します。
 
 ```sh
-npm install --save-dev textlint ./textlint-rule-native-japanese-0.1.0.tgz
+npm install --save-dev textlint ./textlint-rule-preset-native-japanese-0.1.0.tgz
 ```
 
 検査するファイル、またはパスを指定します。
 
 ```sh
-npx textlint --rule native-japanese README.md
-npx textlint --rule native-japanese "docs/**/*.md"
+npx textlint --rule preset-native-japanese README.md
+npx textlint --rule preset-native-japanese "docs/**/*.md"
 ```
+
+語の使い方への指摘は`error`、辞書・解析の対応不足は`warning`として表示されます。`warning`だけなら終了値は0、`error`があれば1です。指摘の意味と、検査自体の失敗との違いは[指摘の読み方](textlint.md#指摘の読み方)を参照してください。
 
 初回の検査では実行環境を自動で準備します。ネットワーク接続とダウンロード・展開のための時間、ディスク空き容量が必要です。準備した環境は利用者のcacheに保存し、次回から再利用します。モデルと参照DBはパッケージに同梱しています。利用者がPythonを準備する必要はありません。
 

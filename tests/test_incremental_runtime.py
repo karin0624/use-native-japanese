@@ -5,8 +5,10 @@ import json
 from dataclasses import replace
 
 import pytest
+from test_reference import QUERY as REFERENCE_QUERY
+from test_reference import setup_reference as setup_reference
 
-from native_japanese import Analysis, Endpoint, Query, Relation, Unavailable
+from native_japanese import Analysis, Endpoint, Query, Relation, Unavailable, reference
 from native_japanese import __main__ as cli
 from native_japanese.service import Inspector
 from native_japanese.support import Support
@@ -155,6 +157,35 @@ def test_serve_retains_ids_errors_empty_unicode_and_batch_parser(monkeypatch, ca
     assert output[3]["results"][0]["diagnostics"] == output[0]["results"][0]["diagnostics"]
     assert instance.parser.batches == [(TEXT, "", "  \n"), ("解析失敗",), (TEXT,)]
     assert instance.parser.closed
+
+
+def test_serve_keeps_dictionary_shortage_separate_from_vector_failure(
+    setup_reference, monkeypatch, capsys
+):
+    source, output, assets = setup_reference
+    reference.build_reference(source, output, assets)
+    instance = inspector(monkeypatch)
+
+    def analyze(text):
+        noun = "追加の未収録" if text == TEXT else "非有限"
+        relation = replace(RELATION, queries=(replace(REFERENCE_QUERY, noun=(noun,)),))
+        return replace(ANALYSIS, text=text, relations=(relation,))
+
+    monkeypatch.setattr(instance.parser, "analyze", analyze)
+    requests = [
+        {"id": "不足", "texts": [TEXT]},
+        {"id": "異常", "texts": [TEXT + "計算異常"]},
+    ]
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("\n".join(map(json.dumps, requests))))
+    with instance, reference.Reference(output, assets) as runtime:
+        instance.reference = runtime
+        cli.serve(instance)
+    shortage, failure = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert "error" not in shortage
+    assert shortage["results"][0]["diagnostics"] == []
+    assert "追加の未収録" in shortage["results"][0]["unavailable"][0]["reason"]
+    assert failure["id"] == "異常" and "error" in failure and "results" not in failure
+    assert "非有限" in failure["error"]["message"]
 
 
 def test_cli_reports_initialization_failure_without_json_noise(monkeypatch, capsys):
