@@ -2,7 +2,11 @@
 
 「重複を畳む」のような語の使い方を用例に照らし、確認が必要な名詞・述語を原文位置付きで返すtextlintルールです。GiNZAの公開文節API（NER除外）、Bloom集合索引、名詞群の平均を使います。訂正案は未実装です。
 
-Node.js 20.18以上を使います。npm registryには未公開のため、`npm pack`で作成したtgzを利用するプロジェクトに置いて導入します。
+Node.js 20.18以上を使います。他のプロジェクトでルールを利用する場合と、このリポジトリをcloneして開発・検証する場合で、準備が異なります。
+
+## 他のプロジェクトで使う
+
+npm registryには未公開です。配布された`textlint-rule-native-japanese-0.1.0.tgz`を利用先のプロジェクトに置き、そのルートで導入・実行します。
 
 ```sh
 npm install --save-dev textlint ./textlint-rule-native-japanese-0.1.0.tgz
@@ -10,7 +14,24 @@ npx textlint --rule native-japanese README.md
 npx textlint --rule native-japanese "docs/**/*.md"
 ```
 
-初回は実行環境の自動準備にネットワーク接続、時間、ディスク空き容量が必要です。モデルと参照DBは同梱し、準備した環境は再利用します。対象OSなどの前提は[セットアップ](docs/setup.md)を参照してください。
+モデルと参照DBを同梱し、Python環境は初回に自動準備します。ネットワーク接続、時間、ディスク空き容量が必要です。準備した環境は再利用します。対象OSなどは[セットアップ](docs/setup.md#他のプロジェクトで使う)を参照してください。
+
+## cloneして開発・検証する
+
+cloneしたリポジトリのルートで、Git LFSの資源実体と開発依存を準備します。
+
+```sh
+git lfs install
+git lfs pull
+npm ci
+npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.13
+npx textlint README.md
+npx textlint "docs/**/*.md"
+```
+
+リポジトリの設定により、checkoutのJavaScriptとPythonソースを直接使います。変更後にtextlintを起動し直すと反映されます。tgzの作成・再導入は不要です。詳細とテストは[開発手順](docs/development.md#開発環境)を参照してください。
+
+## 検査の性質と検証範囲
 
 `indexed`は近似索引の一致で、低確率の誤通過があり、実用例の直接確認を意味しません。陰性だけでは警告せず、比較可能な群の支持が暫定境界0.35未満なら確認を促します。比較不能は理由付きで残します。支持は正誤確率ではありません。
 

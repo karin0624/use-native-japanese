@@ -1,34 +1,55 @@
 # 開発と資源の構築
 
-通常の導入・実行は[セットアップ](setup.md)を参照してください。この文書は、リポジトリの開発、独自の参照構築、既存のPython接続を扱います。方式と検証範囲は[最新方針](compact-runtime-plan.md)、内部APIと用例形式は[Python APIとCLI](runtime.md)に記録しています。
+他のプロジェクトへの導入は[セットアップ](setup.md#他のプロジェクトで使う)を参照してください。この文書は、このリポジトリをcloneした開発・検証と、必要に応じた独自参照の構築を扱います。方式と検証範囲は[最新方針](compact-runtime-plan.md)、内部APIと用例形式は[Python APIとCLI](runtime.md)に記録しています。
 
 ## 開発環境
 
-Python 3.12以上と`uv`を使い、リポジトリのルートで実行します。現行方式はGiNZA（NER除外）で、KNP/Juman++のnative buildや大容量格フレームを要求しません。
+Node.js 20.18以上、Git、Git LFSを用意し、cloneしたリポジトリのルートで実行します。Pythonとuvの事前導入は不要です。
 
 ```sh
-uv sync --locked --extra setup
-. .venv/bin/activate
-python tools/setup-resources.py --assets-dir /path/to/assets
-```
-
-GiNZA・ja_ginza・spaCy・Sudachi辞書とベクトル依存の版は`pyproject.toml`と`uv.lock`で固定します。解析モデル・辞書はPython依存として導入し、上のscriptは固定の小型fastTextモデルを準備します。原コーパス本文と構築用正本はGit外に置き、公開しません。配布用の固定モデルと参照DBはGit LFSで管理し、npm配布物には実体を同梱します。
-
-Node.js 20.18以上を使い、textlint接続の開発・回帰試験はリポジトリのルートで実行します。
-
-```sh
+git lfs install
+git lfs pull
 npm ci
-npm test
+npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.13
 ```
 
-人工workerによる試験は通信・位置・寿命の回帰確認で、日本語の正しさ・訂正精度・モデル速度の証拠ではありません。配布時にはGit LFSの実体を取得し、`npm pack`で作ったtgzをリポジトリ外へ導入して確認します。npm registryへの公開は行いません。[配布方針](npm-distribution-plan.md)も参照してください。
+`npm ci`はworkspaceの開発依存を導入します。その依存に含まれるuvで固定Pythonと`.venv`を準備し、`src/native_japanese`をeditableで導入します。GiNZA・ja_ginza・spaCy・Sudachi辞書とベクトル依存の版は`pyproject.toml`と`uv.lock`で固定します。現行方式はGiNZA（NER除外）で、KNP/Juman++のnative buildや大容量格フレームを要求しません。
 
-CIでは全3 OSでNodeテスト、Linuxで既存PythonテストとRuffを実行します。配布試験はLinux・macOS・Windowsで実tgzを別projectへ導入し、正本manifestに合う資源実体と帰属資料の同梱、空cacheからのmanaged Python準備、textlintのファイル・glob処理、公開Python CLIとの出力一致を確認します。取得後は`UV_OFFLINE=1`でも再利用できることを確かめます。これはuvの取得を禁止する確認で、OS全体の通信遮断、日本語の正誤・検出精度、一般的な実行時間を保証する試験ではありません。
+固定モデルと参照DBは`packages/textlint-rule-native-japanese/assets`のGit LFS実体を使います。通常の開発では`setup-resources.py`による取得や参照の再構築は不要です。原コーパス本文と構築用正本はGit外に置き、公開しません。
 
-## 既存モデルの再利用
+### checkoutのソースをtextlintで検証する
 
 ```sh
-python tools/setup-resources.py --assets-dir /path/to/assets \
+npx textlint README.md
+npx textlint "docs/**/*.md"
+```
+
+リポジトリの`.textlintrc.cjs`がcheckoutのJavaScriptと`.venv`のPythonを接続します。このリポジトリでは設定で開発用ルールを選択済みなので、`--rule`を追加せず実行します。Pythonは`-E -X utf8 -m native_japanese serve`で起動し、editableのソースとLFS資源を使います。変更後にtextlintを起動し直すとソースの変更が反映されます。tgzの作成・再導入、配布用backendのコピー、ルール更新のための`npm install`は不要です。
+
+### 通常のテスト
+
+```sh
+npm test
+npm exec --no -- uv run --locked pytest
+npm exec --no -- uv run --locked ruff check .
+```
+
+人工workerによる試験は通信・位置・寿命の回帰確認で、日本語の正しさ・訂正精度・モデル速度の証拠ではありません。
+
+CIではLinux・macOS・Windowsでpack前にcheckoutのソースをtextlintで検証し、Nodeテストも実行します。LinuxではPythonテストとRuffも実行します。これとは別に、配布試験では実tgzをリポジトリ外の別プロジェクトへ導入し、正本manifestに合う資源実体と帰属資料の同梱、空cacheからのmanaged Python準備、textlintのファイル・glob処理、公開Python CLIとの出力一致を確認します。取得後は`UV_OFFLINE=1`でも再利用できることを確かめます。これはuvの取得を禁止する確認で、OS全体の通信遮断、日本語の正誤・検出精度、一般的な実行時間を保証する試験ではありません。npm registryへの公開は行いません。[配布方針](npm-distribution-plan.md)も参照してください。
+
+## 独自参照の構築に向けたモデルの取得・再利用（任意）
+
+通常の開発には同梱のLFS資源を使います。独自の資源ディレクトリに固定モデルを取得する場合だけ、次を実行します。
+
+```sh
+npm exec --no -- uv run --locked python tools/setup-resources.py --assets-dir /path/to/assets
+```
+
+既存のモデルを再利用する場合は、次のように指定します。
+
+```sh
+npm exec --no -- uv run --locked python tools/setup-resources.py --assets-dir /path/to/assets \
   --reuse fasttext-ja-mini=/path/to/existing/fasttext-ja-mini --offline
 ```
 
@@ -38,7 +59,7 @@ python tools/setup-resources.py --assets-dir /path/to/assets \
 
 モデルはLiebl Bernhard, Compressed fastText Embeddings, v1.0, 2021-06-07、[Zenodo 10.5281/zenodo.4905385](https://doi.org/10.5281/zenodo.4905385)の圧縮版です。従来の取得調査では説明本文のCC BY-SA 3.0と機械metadataのCC BY 4.0に不一致があり、圧縮前の厳密snapshotは未確認でした。SHAは保存済み取得値を固定期待値として使い、公式公開SHAとの照合とは称しません。導入成功を再配布条件の確認の代わりにはしません。公式Zenodoの公開MD5とは照合済みです。現在の配布資源の出自・帰属・利用条件は、同梱の[帰属表示](../packages/textlint-rule-native-japanese/THIRD_PARTY_NOTICES.md)を参照してください。
 
-## 用例から参照を構築する
+## 用例から参照を構築する（任意）
 
 ```mermaid
 flowchart LR
