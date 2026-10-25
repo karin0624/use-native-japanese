@@ -29,6 +29,15 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - run: npm test
+      - name: Python開発環境を準備
+        if: runner.os == 'Linux'
+        run: npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.13
+      - name: Pythonの既存テスト
+        if: runner.os == 'Linux'
+        run: npm exec --no -- uv run --no-sync pytest -q
+      - name: Pythonの静的検査
+        if: runner.os == 'Linux'
+        run: npm exec --no -- uv run --no-sync ruff check src tests tools
       - name: Git外へpack
         shell: bash
         run: npm pack --workspace packages/textlint-rule-native-japanese --pack-destination "$RUNNER_TEMP"

@@ -6,9 +6,12 @@ import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const tarball = path.resolve(process.argv[2] ?? "");
 assert.ok(process.argv[2]?.endsWith(".tgz"), "検証するnpm packのtgzを引数で指定してください。");
+const sourcePackage = fileURLToPath(new URL("../packages/textlint-rule-native-japanese/", import.meta.url));
+const sourceManifest = JSON.parse(await readFile(path.join(sourcePackage, "assets/manifest.json"), "utf8"));
 const temporary = await mkdtemp(path.join(tmpdir(), "native-japanese-package-"));
 const project = path.join(temporary, "consumer");
 const home = path.join(temporary, "home");
@@ -100,7 +103,9 @@ try {
     for (const name of entries) assert.ok(allowed.some(pattern => pattern.test(name)), `同梱対象外のfile: ${name}`);
     assert.ok(entries.includes("package/THIRD_PARTY_NOTICES.md"));
     assert.ok(entries.includes("package/assets/sources.json"));
-    assert.equal(entries.filter(name => name.startsWith("package/licenses/")).length, 7);
+    const licenses = await readdir(path.join(sourcePackage, "licenses"));
+    assert.deepEqual(entries.filter(name => name.startsWith("package/licenses/")).sort(),
+        licenses.map(name => `package/licenses/${name}`).sort());
 
     await writeFile(path.join(project, "package.json"), JSON.stringify({ private: true, type: "module" }));
     console.log("repo外へ、install scriptsを無効にして通常のoptional dependenciesとともに導入します。");
@@ -111,26 +116,18 @@ try {
     console.log(`tarball ${(await stat(tarball)).size} bytes、同梱package実体 ${installedBytes} bytes（npm依存・Python/cacheは別）。`);
     const assets = path.join(installed, "assets");
     const manifest = JSON.parse(await readFile(path.join(assets, "manifest.json"), "utf8"));
-    const fixed = {
-        reference: { file: "reference.sqlite3", bytes: 71_204_864, sha256: "44d549d8fc32339398e6a1a8c80ac840b4219c5e37187b61e56bfc56312e97de" },
-        model: { file: "fasttext-ja-mini", bytes: 21_944_687, sha256: "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7" }
-    };
-    for (const [key, expected] of Object.entries(fixed)) {
-        for (const field of ["file", "bytes", "sha256"]) assert.equal(manifest[key][field], expected[field]);
+    assert.deepEqual(manifest, sourceManifest);
+    for (const key of ["reference", "model"]) {
+        const expected = sourceManifest[key];
         const content = await readFile(path.join(assets, expected.file));
         assert.equal(content.length, expected.bytes);
         assert.ok(!content.subarray(0, 100).toString().startsWith("version https://git-lfs.github.com/spec/v1"));
         assert.equal(await sha256(path.join(assets, expected.file)), expected.sha256);
     }
-    assert.equal(await sha256(path.join(assets, manifest.provenance.sourcesFile)), manifest.provenance.sourcesSha256);
-    const sources = JSON.parse(await readFile(path.join(assets, "sources.json"), "utf8"));
-    assert.equal(sources.articleCount, 1025);
-    assert.equal(sources.passageCount, 6463);
-    assert.equal(sources.articles.length, sources.articleCount);
-    assert.equal(sources.articles.reduce((count, article) => count + article.passages.length, 0), sources.passageCount);
-    for (const article of sources.articles) {
-        assert.deepEqual(Object.keys(article).sort(), ["articleId", "passages", "title", "url"]);
-        assert.ok(article.passages.every(id => typeof id === "string" && id.startsWith(`${article.articleId}#`)));
+    assert.equal(await sha256(path.join(assets, sourceManifest.provenance.sourcesFile)), sourceManifest.provenance.sourcesSha256);
+    for (const name of licenses) {
+        assert.deepEqual(await readFile(path.join(installed, "licenses", name)),
+            await readFile(path.join(sourcePackage, "licenses", name)));
     }
     console.log("資源実体の固定hash・出典・帰属と、raw corpus/構築正本/cacheを含まないfile一覧を確認しました。");
 
@@ -150,8 +147,6 @@ try {
         { env, statuses: [0, 1] }));
     console.log(`初回準備とfile検査: ${((performance.now() - firstStarted) / 1000).toFixed(2)}秒。`);
     assert.equal(first.length, 1);
-    assert.deepEqual(messages(first[0]).map(item => item.range), [[0, 5], [6, 8]]);
-    assert.ok(messages(first[0]).every(item => item.message.startsWith("判定保留（比較不能）:")));
 
     const environments = await findEnvironments(home);
     assert.equal(environments.length, 1, "初回準備は専用cacheの単一環境に入る必要があります。");
@@ -173,19 +168,14 @@ try {
     const ordered = [0, 1].map(i => second.find(result => path.basename(result.filePath) === `${i}.md`));
     assert.ok(ordered.every(Boolean));
     assert.deepEqual(messages(ordered[0]), messages(first[0]));
-    assert.deepEqual(messages(ordered[1]).map(item => item.range), [[0, 2], [3, 5]]);
-
-    const code = [
-        "import json,sys", "from native_japanese.service import Inspector",
-        "from native_japanese.__main__ import result_json",
-        "with Inspector(sys.argv[1],sys.argv[2]) as inspector:",
-        " print(json.dumps([result_json(result) for result in inspector.lint_many(json.loads(sys.argv[3]))]))"
-    ].join("\n");
-    const direct = jsonOutput(await run(python, ["-E", "-c", code, path.join(assets, "reference.sqlite3"), assets, JSON.stringify(texts)],
-        { cwd: path.join(installed, "backend/src"), env: offline }));
-    for (let i = 0; i < texts.length; i++) assert.deepEqual(messages(ordered[i]), expectedMessages(direct[i]));
+    for (let i = 0; i < texts.length; i++) {
+        const direct = jsonOutput(await run(python, ["-E", "-m", "native_japanese", "lint",
+            "--reference", path.join(assets, sourceManifest.reference.file), "--assets-dir", assets,
+            path.join(project, "docs", `${i}.md`)], { cwd: path.join(installed, "backend/src"), env: offline }));
+        assert.deepEqual(messages(ordered[i]), expectedMessages(direct));
+    }
     assert.deepEqual(await findEnvironments(home), environments);
-    console.log("managed CPython 3.12.13の初回準備、offline再利用、同梱Python APIと指摘/保留/UTF-16位置の一致を確認しました。");
+    console.log("managed CPython 3.12.13の初回準備、uvのoffline再利用、公開Python CLIと全message/rangeの一致を確認しました。");
 } finally {
     await rm(temporary, { recursive: true, force: true });
 }

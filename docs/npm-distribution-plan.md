@@ -52,3 +52,13 @@ Linux x64、Node.js 24.19.0で、repo外へ実tgzを`npm install --ignore-script
 tgzは52,201,787bytes、展開した当該packageは94,103,785bytes・30ファイル。npmの依存、Python、初回取得cacheはこの容量に含まない。原コーパス・構築正本・一時環境を含まないこと、固定モデルと参照のhash、1,025記事・6,463区間の出典、ライセンス原文を検査した。Nodeの22テスト、Pythonの87テストと19subtest、Ruffが成功した。fresh contextで実装・テスト・利用手順を再レビューし、上記signal回収の修正後に追加の具体的不備は認められなかった。
 
 macOSとWindowsは同じ配布物検証をGitHub Actionsで実行する。CI結果とLFS再取得の確認は、この節へ追記する。
+
+## CIの目的と境界（2026-10-26）
+
+実tgzを開発リポジトリ外へ導入する試験には、[Playwrightのinstallation tests](https://github.com/microsoft/playwright/blob/8c1b148f3d73120aa90f10119920358062fda177/tests/installation/globalSetup.ts)と[Puppeteerのinstallation tests](https://github.com/puppeteer/puppeteer/blob/08e7b1aebe60462b6f7834e9dfe0f6c70464247c/test/installation/src/puppeteer.test.ts)の先例がある。実依存の取得と利用者の入口を試す点は共通する。これを、日本語の精度評価や現スクリプトの全検査が一般的だという根拠にはしない。
+
+通常の回帰試験と配布の確認を区別する。Nodeの試験に加え、既存のPythonテストとRuffもCIの明示したstepで実行する。導入試験では、実体と帰属資料の同梱、空cacheからの自動準備、textlintのファイル・glob処理、取得済み環境の再利用を確かめる。`UV_OFFLINE=1`はuvの取得禁止であり、OS全体の通信遮断ではない。
+
+記事数・区間数・ライセンスファイル数・資源hashを試験へ重複記載せず、配布対象の正本と照合する。自然文の判定結果と範囲の固定値も外し、同じ参照を使った公開Python CLIとの出力一致を確認する。用例追加で判定が変わることを配布の不具合とみなさない。managed Pythonの版と専用領域は、利用者の既存Pythonに依存していないことを確かめる対象として残す。
+
+Windowsの実起動では、深いcache内のspaCy拡張を読み込む際に長いパスのエラーを観測した。固定wheelのファイル名・manifestと[CPythonの既知issue #126929](https://github.com/python/cpython/issues/126929)を照合した。環境keyのSHA-256をhexからbase64urlへ表記変更し、全256bitと識別条件を保って21文字短縮する案を検証する。受け入れ試験の隔離先や期待値を変更して回避しない。

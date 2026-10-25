@@ -23,6 +23,8 @@ npm test
 
 人工workerによる試験は通信・位置・寿命の回帰確認で、日本語の正しさ・訂正精度・モデル速度の証拠ではありません。配布時にはGit LFSの実体を取得し、`npm pack`で作ったtgzをリポジトリ外へ導入して確認します。npm registryへの公開は行いません。[配布方針](npm-distribution-plan.md)も参照してください。
 
+CIでは全3 OSでNodeテスト、Linuxで既存PythonテストとRuffを実行します。配布試験はLinux・macOS・Windowsで実tgzを別projectへ導入し、正本manifestに合う資源実体と帰属資料の同梱、空cacheからのmanaged Python準備、textlintのファイル・glob処理、公開Python CLIとの出力一致を確認します。取得後は`UV_OFFLINE=1`でも再利用できることを確かめます。これはuvの取得を禁止する確認で、OS全体の通信遮断、日本語の正誤・検出精度、一般的な実行時間を保証する試験ではありません。
+
 ## 既存モデルの再利用
 
 ```sh
