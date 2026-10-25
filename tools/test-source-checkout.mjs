@@ -35,8 +35,7 @@ function expectedMessages(result) {
     assert.equal(result.offsetEncoding, "utf-16");
     const messages = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese" }));
     for (const item of result.unavailable) {
-        const label = item.kind === "analysis" ? "判定保留（解析情報）" : "判定保留（比較不能）";
-        messages.push(...item.ranges.map(range => ({ range, message: `${label}: ${item.reason}`, ruleId: "native-japanese" })));
+        messages.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese" })));
     }
     return ordered(messages);
 }

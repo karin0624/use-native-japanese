@@ -39,7 +39,7 @@ export class Worker {
         const generation = this.generation;
         this.starting = (async () => {
             const runtime = this.config.command ? this.config : await this.prepare();
-            if (generation !== this.generation) throw new Error("native-japanese: ワーカーの起動を中止しました。");
+            if (generation !== this.generation) throw new Error("native-japanese: 解析処理の起動を中止しました。");
             this.spawn(runtime);
         })();
         try { await this.starting; }
@@ -59,7 +59,7 @@ export class Worker {
             if (this.child !== child) return;
             this.buffer += chunk;
             if (this.buffer.length > MAX_OUTPUT) {
-                this.close(new Error("native-japanese: ワーカーの応答が上限を超えました。"));
+                this.close(new Error("native-japanese: 解析処理からの応答が受信サイズの上限を超えました。"));
                 return;
             }
             let newline;
@@ -67,16 +67,16 @@ export class Worker {
                 const line = this.buffer.slice(0, newline);
                 this.buffer = this.buffer.slice(newline + 1);
                 try { this.receive(JSON.parse(line)); }
-                catch (error) { this.close(new Error(`native-japanese: 不正なワーカー応答: ${error.message}`)); return; }
+                catch (error) { this.close(new Error(`native-japanese: 解析処理からの応答を読み取れません: ${error.message}`)); return; }
             }
         });
         child.stderr.on("data", chunk => { if (this.child === child) this.stderr = (this.stderr + chunk).slice(-4096); });
-        child.on("error", error => { if (this.child === child) this.close(new Error(`native-japanese: ワーカーを起動できません: ${error.message}`)); });
-        child.stdin.on("error", error => { if (this.child === child) this.close(new Error(`native-japanese: ワーカーへの送信に失敗しました: ${error.message}`)); });
+        child.on("error", error => { if (this.child === child) this.close(new Error(`native-japanese: 解析処理を起動できません: ${error.message}`)); });
+        child.stdin.on("error", error => { if (this.child === child) this.close(new Error(`native-japanese: 解析処理への本文の送信に失敗しました: ${error.message}`)); });
         child.on("close", (code, signal) => {
             children.delete(child);
             if (this.child === child) {
-                this.close(new Error(`native-japanese: ワーカーが終了しました (${code ?? signal})。${this.stderr.trim()}`));
+                this.close(new Error(`native-japanese: 解析処理が終了しました（終了コードまたはシグナル: ${code ?? signal}）。${this.stderr.trim()}`));
             }
         });
     }
@@ -89,7 +89,7 @@ export class Worker {
         this.reference(true);
         const id = String(++this.sequence);
         return new Promise((resolveRequest, reject) => {
-            const timer = setTimeout(() => this.close(new Error("native-japanese: ワーカーの応答が時間内に返りませんでした。")), this.timeoutMs);
+            const timer = setTimeout(() => this.close(new Error("native-japanese: 解析処理から時間内に応答がありませんでした。")), this.timeoutMs);
             this.pending.set(id, { resolve: resolveRequest, reject, timer, count: texts.length });
             this.child.stdin.write(`${JSON.stringify({ id, texts })}\n`);
         });
@@ -97,16 +97,16 @@ export class Worker {
 
     receive(response) {
         const pending = this.pending.get(response?.id);
-        if (!pending) throw new Error("要求IDが一致しません。");
+        if (!pending) throw new Error("応答のidに対応する検査要求が見つかりません。");
         if (response.error !== undefined && (typeof response.error?.message !== "string" || response.results !== undefined)) {
-            throw new Error("処理エラーの形式が不正です。");
+            throw new Error("エラー応答には文字列のerror.messageが必要です。resultsは同時に指定できません。");
         }
         if (!response.error && (!Array.isArray(response.results) || response.results.length !== pending.count)) {
-            throw new Error("結果の件数が要求と一致しません。");
+            throw new Error("応答のresultsが配列でないか、送信した本文と結果の件数が一致しません。");
         }
         clearTimeout(pending.timer);
         this.pending.delete(response.id);
-        if (response.error) pending.reject(new Error(`native-japanese: ${response.error.message ?? "ワーカーの処理に失敗しました。"}`));
+        if (response.error) pending.reject(new Error(`native-japanese: ${response.error.message ?? "本文の解析に失敗しました。"}`));
         else pending.resolve(response.results);
         if (this.pending.size === 0) {
             this.reference(false);
@@ -121,7 +121,7 @@ export class Worker {
         }
     }
 
-    close(error = new Error("native-japanese: ワーカーを終了しました。")) {
+    close(error = new Error("native-japanese: 解析処理を終了しました。")) {
         this.generation++;
         clearTimeout(this.idleTimer);
         for (const pending of this.pending.values()) {

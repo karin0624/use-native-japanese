@@ -37,7 +37,7 @@ def result_json(result) -> dict:
                     if not relation.queries or relation.unavailable_reasons
                     else "reference",
                     "ranges": ranges(dict.fromkeys(spans)),
-                    "reason": "；".join(assessment.reasons),
+                    "reason": "".join(assessment.reasons),
                 }
             )
         row = asdict(assessment)
@@ -74,14 +74,16 @@ def serve(inspector):
         try:
             request = json.loads(line)
             if not isinstance(request, dict):
-                raise ValueError("要求にはidとtextsを持つJSON objectが必要です。")
+                raise ValueError("要求には、idとtextsを含むJSONオブジェクトを指定してください。")
             try:
                 json.dumps(request.get("id"), allow_nan=False)
             except (TypeError, ValueError) as error:
-                raise ValueError("要求idには有限のJSON値が必要です。") from error
+                raise ValueError(
+                    "要求のidにはJSONで表せる値を指定してください。NaNや無限大は使えません。"
+                ) from error
             request_id = request.get("id")
             if "id" not in request or not isinstance(request.get("texts"), list):
-                raise ValueError("要求にはidとtexts配列が必要です。")
+                raise ValueError("要求には、idと、文字列の配列textsを指定してください。")
             if not all(isinstance(text, str) for text in request["texts"]):
                 raise ValueError("textsの各要素には文字列が必要です。")
             with redirect_stdout(sys.stderr):
@@ -93,7 +95,7 @@ def serve(inspector):
 
 
 def arguments(argv):
-    parser = argparse.ArgumentParser(description="語の組合せを用例に照らして検査します。")
+    parser = argparse.ArgumentParser(description="語の組み合わせを用例に照らして検査します。")
     commands = parser.add_subparsers(dest="command", required=True)
     command = commands.add_parser("prepare")
     command.add_argument("--examples", required=True)
@@ -141,7 +143,7 @@ def main(argv=None) -> int:
                 from .parser import Parser
 
                 if not options.source_id.strip() or not options.source_url.strip():
-                    raise ValueError("出典IDと出典の所在には空でない文字列が必要です。")
+                    raise ValueError("出典IDと出典URLには空でない文字列を指定してください。")
                 with redirect_stdout(sys.stderr):
                     parser = Parser()
                     stack.callback(parser.close)

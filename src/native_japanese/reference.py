@@ -20,6 +20,14 @@ APPLICATION_ID = 0x4E4A5246
 SCHEMA_VERSION = 1
 DIMENSION = 300
 
+# 配布済みDBの理由だけを読み替える。保存データと比較条件は変更しない。
+_LEGACY_GROUP_REASONS = {
+    "比較可能な名詞列がありません": "収録された用例のデータを比較に使えません。",
+    "群の平均が非有限です": "用例を比較するための計算結果に、無限大や数値でない値が含まれています。",
+    "群の平均が厳密にゼロです": "用例を比較するための計算結果がゼロになりました。",
+    "群内の一部名詞列は比較不能です": "一部の用例は比較に使えません。",
+}
+
 
 def vector_identity():
     data = resources.metadata()
@@ -49,7 +57,7 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
     if source.resolve() == output.resolve() or (
         output.exists() and os.path.samefile(source, output)
     ):
-        raise ValueError("配布参照で用例正本を上書きできません")
+        raise ValueError("配布用の参照DBで元の用例DBを上書きできません。")
     output.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=output.name + ".", suffix=".part", dir=output.parent)
     os.close(fd)
@@ -61,7 +69,7 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
             builder = membership.Builder(usages)
             vectors = Vectors(resources.load_fixed_vector(Path(assets_dir)))
             if vectors.model.vector_size != DIMENSION:
-                raise ValueError("固定vectorの次元が一致しません")
+                raise ValueError("固定の単語ベクトルの次元数が一致しません。")
             db.executescript("""
                 CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
                 CREATE TABLE membership (id INTEGER PRIMARY KEY CHECK(id=1), payload BLOB NOT NULL);
@@ -89,7 +97,7 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
             restored = membership.restore(raw, manifest)
             # 保存経路を通った全登録が陽性であることを、公開前に正本へ照合する。
             if any(not membership.contains(restored, query_key(q)) for q in examples.iter_usages()):
-                raise ValueError("配布索引に登録漏れがあります")
+                raise ValueError("配布用の索引に登録されていない用例があります。")
             identity = {**contract(), "usages": usages, "groups": groups, "comparable": comparable}
             db.execute("INSERT INTO metadata VALUES ('identity',?)", (canonical(identity),))
             db.execute("INSERT INTO metadata VALUES ('membership',?)", (canonical(manifest),))
@@ -129,7 +137,7 @@ class Reference:
             self.connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
             or self.connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
         ):
-            raise ValueError("配布参照の種類または版が一致しません")
+            raise ValueError("配布用の参照DBの種類またはバージョンが一致しません。")
         lengths = self.connection.execute(
             "SELECT key,length(CAST(value AS BLOB)) FROM metadata"
         ).fetchall()
@@ -141,7 +149,7 @@ class Reference:
                 for _, length in lengths
             )
         ):
-            raise ValueError("参照metadataの項目または長さが不正です")
+            raise ValueError("参照DBのメタデータの項目またはデータ長が不正です。")
         meta = {
             key: json.loads(value)
             for key, value in self.connection.execute("SELECT * FROM metadata")
@@ -154,22 +162,24 @@ class Reference:
             "groups",
             "comparable",
         }:
-            raise ValueError("参照identityの項目が一致しません")
+            raise ValueError("参照DBの識別情報（identity）の項目が一致しません。")
         if any(type(identity[k]) is not type(v) or identity[k] != v for k, v in expected.items()):
-            raise ValueError("参照の正規化・固定資源契約が一致しません")
+            raise ValueError(
+                "参照DBの作成に使った設定（形式のバージョン、解析器、固定資源など）が、この検査器に対応していません。"
+            )
         if any(
             type(identity[k]) is not int or identity[k] < 0
             for k in ("usages", "groups", "comparable")
         ):
-            raise ValueError("参照の件数が不正です")
+            raise ValueError("参照DBに記録された件数が不正です。")
         lengths = self.connection.execute("SELECT id,length(payload) FROM membership").fetchall()
         if len(lengths) != 1 or lengths[0][0] != 1 or not 0 <= lengths[0][1] <= file_size:
-            raise ValueError("Bloom payloadの保存長が不正です")
+            raise ValueError("Bloomフィルター本体の保存データ長が不正です。")
         manifest = meta["membership"]
         if type(manifest) is not dict or manifest.get("raw_bytes") != lengths[0][1]:
-            raise ValueError("Bloom宣言長と保存長が一致しません")
+            raise ValueError("Bloomフィルターのデータ長が、記録された長さと一致しません。")
         if type(manifest.get("capacity")) is not int or manifest["capacity"] != identity["usages"]:
-            raise ValueError("Bloom容量と参照用例数が一致しません")
+            raise ValueError("Bloomフィルターの容量と参照DBの用例数が一致しません。")
         raw = self.connection.execute("SELECT payload FROM membership WHERE id=1").fetchone()[0]
         self.membership = membership.restore(raw, manifest)
         groups = total = comparable = 0
@@ -182,7 +192,9 @@ class Reference:
                 or values[0] != NORMALIZATION_IDENTITY
                 or canonical(values) != key
             ):
-                raise ValueError("群キーの正規化契約が不正です")
+                raise ValueError(
+                    "用例のグループを表すキーの形式または作成時の設定（normalization_identity）が不正です。"
+                )
             groups += 1
             total += size
             comparable += count
@@ -191,7 +203,7 @@ class Reference:
             identity["usages"],
             identity["comparable"],
         ):
-            raise ValueError("群の件数が参照metadataと一致しません")
+            raise ValueError("用例のグループに含まれる件数が、参照DBのメタデータと一致しません。")
         self.identity = identity
 
     @staticmethod
@@ -203,18 +215,22 @@ class Reference:
             or total == 0
             or (reason is not None and (not isinstance(reason, str) or not reason))
         ):
-            raise ValueError("保存された群の分母または不能理由が不正です")
+            raise ValueError("保存された用例のグループの件数または比較できない理由が不正です。")
         if blob is None:
             if comparable != 0 or reason is None:
-                raise ValueError("群の平均欠損と件数が不整合です")
+                raise ValueError("用例の平均データの有無と、比較できる用例数が矛盾しています。")
             return None
         if type(blob) is not bytes or len(blob) != DIMENSION * 8 or comparable == 0:
-            raise ValueError("保存された群vectorの形状が不正です")
+            raise ValueError("保存された用例の平均ベクトルの形式が不正です。")
         mean = np.frombuffer(blob, dtype="<f8")
         if not np.isfinite(mean).all():
-            raise ValueError("保存された群vectorが非有限です")
+            raise ValueError(
+                "保存された用例の平均ベクトルに、無限大や数値でない値が含まれています。"
+            )
         if not np.any(mean) and reason is None:
-            raise ValueError("ゼロ平均の群に不能理由がありません")
+            raise ValueError(
+                "用例の平均ベクトルがゼロですが、比較できない理由が記録されていません。"
+            )
         return mean
 
     def __enter__(self):
@@ -241,11 +257,10 @@ class Reference:
             "SELECT mean,comparable,total,reason FROM groups WHERE key=?", (group_key(query),)
         ).fetchone()
         if row is None:
-            return Support(
-                False, None, "同じ述語・品詞・依存ラベル・元方向の群がありません", evidence
-            )
+            return Support(False, None, "比較に使える用例が収録されていません。", evidence)
         blob, comparable, total, reason = row
         mean = self._decode_group(*row)
+        reason = _LEGACY_GROUP_REASONS.get(reason, reason)
         if mean is None or not np.any(mean):
             return Support(False, None, reason, evidence, comparable, total)
         if self._vectors is None:
@@ -254,5 +269,5 @@ class Reference:
         score = direction(x, mean) if x is not None else None
         reasons = [value for value in (reason, unavailable) if value]
         if score is None and unavailable is None:
-            reasons.append("群の方向を比較できません")
-        return Support(False, score, "；".join(reasons) or None, evidence, comparable, total)
+            reasons.append("用例との比較結果を計算できません。")
+        return Support(False, score, "".join(reasons) or None, evidence, comparable, total)

@@ -45,7 +45,7 @@ export function plainSegments(node, codeSpans) {
                 span.children.map(leaf => leaf.value).join("") !== child.value ||
                 span.children.some(leaf => leaf.raw !== leaf.value || leaf.range[0] < start ||
                     leaf.range[1] > end || leaf.range[1] - leaf.range[0] !== leaf.value.length)) {
-                throw new Error("native-japanese: inline codeのASTと原文tokenが一致しません。");
+                throw new Error("native-japanese: インラインコードの解析結果が原文と一致しないため、指摘位置を特定できません。");
             }
             leaves.push(...span.children);
         } else if (child.type === "Str" || child.type === "Break") {
@@ -90,29 +90,29 @@ export default function rule(context, options = {}) {
             for (let i = 0; i < results.length; i++) {
                 const segment = segments[i];
                 if (results[i]?.offsetEncoding !== "utf-16" || !Array.isArray(results[i]?.diagnostics)) {
-                    throw new Error("native-japanese: 応答にはoffsetEncoding: utf-16とdiagnosticsが必要です。");
+                    throw new Error("native-japanese: 解析処理の応答でoffsetEncodingがutf-16でないか、diagnosticsが指摘の配列になっていません。");
                 }
                 const reportRange = (range, message) => {
                     if (!Array.isArray(range) || range.length !== 2 ||
                         !range.every(Number.isSafeInteger) || range[0] < 0 || range[0] >= range[1] ||
                         range[1] > segment.text.length || range.some(index => splitsSurrogate(segment.text, index))) {
-                        throw new Error("native-japanese: 指摘のUTF-16範囲が不正です。");
+                        throw new Error("native-japanese: 指摘のUTF-16範囲を読み取れないか、範囲が本文または文字の境界に合っていません。");
                     }
                     const start = segment.source.originalIndexFromIndex(range[0]);
                     const end = segment.source.originalIndexFromIndex(range[1], true);
                     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end ||
                         start < 0 || end > segment.node.raw.length) {
-                        throw new Error("native-japanese: 指摘の原文範囲への写像が不正です。");
+                        throw new Error("native-japanese: 指摘の位置を原文の範囲に対応付けられません。");
                     }
                     report(segment.node, new RuleError(message, { padding: locator.range([start, end]) }));
                 };
                 for (const diagnostic of results[i].diagnostics) {
                     if (typeof diagnostic?.message !== "string" || !diagnostic.message.trim()) {
-                        throw new Error("native-japanese: 指摘のmessageが不正です。");
+                        throw new Error("native-japanese: 指摘の説明文（message）が空か、文字列ではありません。");
                     }
                     if (diagnostic.suggestions !== undefined && (!Array.isArray(diagnostic.suggestions) ||
                         diagnostic.suggestions.some(value => typeof value !== "string" || !value.trim()))) {
-                        throw new Error("native-japanese: 指摘のsuggestionsには訂正候補の文字列配列が必要です。");
+                        throw new Error("native-japanese: 指摘のsuggestionsには、空でない文字列を並べた訂正候補の配列が必要です。");
                     }
                     // 訂正候補は案内だけにする。装飾を跨ぐ原文範囲を自動置換しない。
                     const suggestions = diagnostic.suggestions?.length
@@ -121,16 +121,15 @@ export default function rule(context, options = {}) {
                 }
                 const unavailable = results[i].unavailable;
                 if (unavailable !== undefined && !Array.isArray(unavailable)) {
-                    throw new Error("native-japanese: unavailableには配列が必要です。");
+                    throw new Error("native-japanese: 判定できない箇所を示すunavailableには配列が必要です。");
                 }
                 for (const item of unavailable ?? []) {
                     if (!["analysis", "reference"].includes(item?.kind) ||
                         typeof item.reason !== "string" || !item.reason.trim() ||
                         !Array.isArray(item.ranges) || !item.ranges.length) {
-                        throw new Error("native-japanese: unavailableのkind・reason・rangesが不正です。");
+                        throw new Error("native-japanese: unavailableのkind（analysisまたはreference）、reason（空でない文字列）、ranges（1件以上の範囲の配列）を読み取れません。");
                     }
-                    const label = item.kind === "analysis" ? "判定保留（解析情報）" : "判定保留（比較不能）";
-                    for (const range of item.ranges) reportRange(range, `${label}: ${item.reason}`);
+                    for (const range of item.ranges) reportRange(range, `判定できません。${item.reason}`);
                 }
             }
         }

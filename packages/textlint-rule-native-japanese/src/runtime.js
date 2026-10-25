@@ -45,7 +45,7 @@ function checkPlatform() {
         supported &&= Boolean(glibc && (glibc[0] > 2 || (glibc[0] === 2 && glibc[1] >= 28)));
     }
     if (!supported) {
-        throw new Error(`native-japanese: 自動準備の対応外です (${platform}/${arch})。Linux glibc 2.28以上・macOS 13以上のx64/arm64、Windows 10以上のx64が必要です。`);
+        throw new Error(`native-japanese: この環境では解析に必要な実行環境を自動で準備できません (${platform}/${arch})。Linux glibc 2.28以上・macOS 13以上のx64/arm64、Windows 10以上のx64が必要です。`);
     }
 }
 
@@ -96,7 +96,7 @@ async function prepare() {
     try {
         uv = uvRequire.resolve(`@dataiku/uv-${process.platform}-${process.arch}/bin/${process.platform === "win32" ? "uv.exe" : "uv"}`);
     } catch (error) {
-        throw new Error("native-japanese: uvのOS別optional dependencyがありません。optional dependenciesを含めてnpm installしてください。", { cause: error });
+        throw new Error("native-japanese: このOS・CPU用のuv実行ファイルが見つかりません。npm install --include=optionalで依存パッケージを再インストールしてください。", { cause: error });
     }
     if (process.platform !== "win32") uv = await executableFromPackage(uv, cache);
     await syncEnvironment(uv, ["--no-config", "sync", "--project", backend, "--locked", "--no-dev",

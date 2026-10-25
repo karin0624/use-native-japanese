@@ -74,7 +74,7 @@ test("資源の実体は通し、LFS pointerと同サイズの改変を拒否す
     await writeFile(join(directory, "fasttext-ja-mini"), model);
     await verifyAssets(directory);
     await writeFile(join(directory, "fasttext-ja-mini"), "version https://git-lfs.github.com/spec/v1\n");
-    await assert.rejects(verifyAssets(directory), /サイズ.*Git LFS/);
+    await assert.rejects(verifyAssets(directory), /サイズ.*manifest\.json/);
     await writeFile(join(directory, "fasttext-ja-mini"), Buffer.alloc(model.length));
     await assert.rejects(verifyAssets(directory), /SHA-256/);
 });

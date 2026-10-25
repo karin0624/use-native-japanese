@@ -37,8 +37,11 @@ def require(condition, message):
 
 
 def new_filter(capacity):
-    require(version("pyprobables") == VERSION, "Bloom依存版が一致しません")
-    require(type(capacity) is int and capacity >= 0, "Bloom容量が不正です")
+    require(
+        version("pyprobables") == VERSION,
+        "Bloomフィルターに必要なpyprobablesのバージョンが一致しません。",
+    )
+    require(type(capacity) is int and capacity >= 0, "Bloomフィルターの容量が不正です。")
     return (
         BloomFilter(est_elements=capacity, false_positive_rate=FPR, hash_function=default_sha256)
         if capacity
@@ -55,14 +58,19 @@ class Builder:
         self.added = 0
 
     def add(self, key: str):
-        require(self.added < self.capacity, "Bloomの固定容量を超える追加です")
+        require(self.added < self.capacity, "Bloomフィルターの固定容量を超えて追加できません。")
         self.filter.add(key.encode("utf-8"))
         self.added += 1
 
     def finish(self):
-        require(self.added == self.capacity, "正本件数とBloom追加数が一致しません")
+        require(
+            self.added == self.capacity, "元の用例数とBloomフィルターへの追加数が一致しません。"
+        )
         filt = self.filter
-        require(filt is None or filt.elements_added == self.added, "Bloom追加数が不正です")
+        require(
+            filt is None or filt.elements_added == self.added,
+            "Bloomフィルターへの追加数が不正です。",
+        )
         raw = bytes.fromhex(filt.export_hex()) if filt else b""
         manifest = {
             **CONTRACT,
@@ -79,40 +87,65 @@ class Builder:
 
 def restore(raw: bytes, manifest: dict):
     """同一bufferを検査後に公開hex loaderへ渡す。試験件数の上限は設けない。"""
-    require(type(raw) is bytes and type(manifest) is dict, "Bloom保存型が不正です")
-    require(version("pyprobables") == VERSION, "Bloom依存版が一致しません")
-    require(set(manifest) == {*CONTRACT, *INTEGER_FIELDS, "raw_sha256"}, "Bloom項目不一致")
+    require(
+        type(raw) is bytes and type(manifest) is dict, "Bloomフィルターの保存データの型が不正です。"
+    )
+    require(
+        version("pyprobables") == VERSION,
+        "Bloomフィルターに必要なpyprobablesのバージョンが一致しません。",
+    )
+    require(
+        set(manifest) == {*CONTRACT, *INTEGER_FIELDS, "raw_sha256"},
+        "Bloomフィルターの保存情報の項目が一致しません。",
+    )
     for key, expected in CONTRACT.items():
         require(
             type(manifest[key]) is type(expected) and manifest[key] == expected,
-            f"Bloom契約不一致: {key}",
+            f"Bloomフィルターの保存設定が一致しません: {key}",
         )
     for key in INTEGER_FIELDS:
-        require(type(manifest[key]) is int and manifest[key] >= 0, f"Bloom整数不正: {key}")
+        require(
+            type(manifest[key]) is int and manifest[key] >= 0,
+            f"Bloomフィルターの設定値は0以上の整数にしてください: {key}",
+        )
     n = manifest["capacity"]
-    require(manifest["elements_added"] == n, "Bloom追加数が容量と一致しません")
-    require(len(raw) == manifest["raw_bytes"], "Bloom保存長不一致")
-    require(hashlib.sha256(raw).hexdigest() == manifest["raw_sha256"], "Bloom SHA-256不一致")
+    require(manifest["elements_added"] == n, "Bloomフィルターへの追加数が容量と一致しません。")
+    require(len(raw) == manifest["raw_bytes"], "Bloomフィルターの保存データ長が一致しません。")
+    require(
+        hashlib.sha256(raw).hexdigest() == manifest["raw_sha256"],
+        "BloomフィルターのSHA-256が一致しません。",
+    )
     if n == 0:
-        require(not raw and all(manifest[k] == 0 for k in INTEGER_FIELDS), "空集合の表現不正")
+        require(
+            not raw and all(manifest[k] == 0 for k in INTEGER_FIELDS),
+            "用例が0件のBloomフィルターの保存情報が不正です。",
+        )
         return None
-    require(len(raw) >= FOOTER.size, "Bloom footer不足")
-    require(FOOTER.unpack(raw[-FOOTER.size :]) == (n, n, FPR), "Bloom footer不一致")
-    require(manifest["payload_bytes"] == len(raw) - FOOTER.size, "Bloom payload長不一致")
+    require(len(raw) >= FOOTER.size, "Bloomフィルターの末尾情報が不足しています。")
+    require(
+        FOOTER.unpack(raw[-FOOTER.size :]) == (n, n, FPR),
+        "Bloomフィルターの末尾情報が一致しません。",
+    )
+    require(
+        manifest["payload_bytes"] == len(raw) - FOOTER.size,
+        "Bloomフィルター本体のデータ長が一致しません。",
+    )
     # 固定FPRでは一要素あたり一byte以上が必要。巨大な偽容量を確保前に拒否する。
-    require(n <= manifest["payload_bytes"], "Bloom容量と実payload長が不整合です")
+    require(
+        n <= manifest["payload_bytes"], "Bloomフィルターの容量と本体のデータ長が矛盾しています。"
+    )
     expected = new_filter(n)
     require(
         (manifest["number_bits"], manifest["number_hashes"], manifest["payload_bytes"])
         == (expected.number_bits, expected.number_hashes, expected.bloom_length),
-        "Bloom形状が固定容量と一致しません",
+        "Bloomフィルターの構造が固定容量と一致しません。",
     )
     del expected
     filt = BloomFilter(hex_string=raw.hex(), hash_function=default_sha256)
     require(
         (filt.estimated_elements, filt.elements_added, filt.number_bits, filt.number_hashes)
         == (n, n, manifest["number_bits"], manifest["number_hashes"]),
-        "Bloom復元後の公開値不一致",
+        "復元したBloomフィルターの値が保存情報と一致しません。",
     )
     return filt
 

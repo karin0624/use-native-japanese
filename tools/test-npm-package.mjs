@@ -73,8 +73,7 @@ function expectedMessages(result) {
     assert.equal(result.offsetEncoding, "utf-16");
     const expected = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese" }));
     for (const item of result.unavailable) {
-        const label = item.kind === "analysis" ? "判定保留（解析情報）" : "判定保留（比較不能）";
-        expected.push(...item.ranges.map(range => ({ range, message: `${label}: ${item.reason}`, ruleId: "native-japanese" })));
+        expected.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese" })));
     }
     return expected.sort((a, b) => a.range[0] - b.range[0] || a.range[1] - b.range[1]);
 }

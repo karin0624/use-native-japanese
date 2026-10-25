@@ -106,5 +106,5 @@ def test_untrusted_pickle_is_rejected_before_version_checks_or_load(tmp_path, mo
         pytest.fail("固定モデル検証より先に依存を読み込んでいます")
 
     monkeypatch.setattr(resources, "check_versions", unexpected_versions)
-    with pytest.raises(ValueError, match="固定vector"):
+    with pytest.raises(ValueError, match="固定単語ベクトル"):
         resources.load_fixed_vector(tmp_path)
