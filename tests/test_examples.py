@@ -21,7 +21,6 @@ def record(query=QUERY, source="出典A", observation="出現1"):
     analysis = Analysis(
         "東を比べる",
         (Relation(Endpoint("比べる", ((2, 5),)), Endpoint("東", ((0, 1),)), (query,)),),
-        (),
     )
     return {
         **next(extract_records(analysis, source, "https://example.test")),
@@ -80,7 +79,7 @@ def test_complete_query_and_array_boundaries_are_preserved(tmp_path):
 def test_extract_has_stable_occurrences_without_changing_lemmas():
     query = replace(QUERY, noun=("区切り/+", " 空白"))
     relation = Relation(Endpoint("比べる", ((5, 8),)), Endpoint("名詞", ((0, 2),)), (query, query))
-    analysis = Analysis("名詞を  比べる", (relation,), ())
+    analysis = Analysis("名詞を  比べる", (relation,))
     first = list(extract_records(analysis, "出典", "url"))
     assert len(first) == 1
     assert first[0]["noun"] == list(query.noun)

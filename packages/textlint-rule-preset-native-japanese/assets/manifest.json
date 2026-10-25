@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "reference": {
     "file": "reference.sqlite3",
-    "bytes": 71204864,
-    "sha256": "44d549d8fc32339398e6a1a8c80ac840b4219c5e37187b61e56bfc56312e97de",
+    "bytes": 70889472,
+    "sha256": "410f79df11d8663f924fc92f9ac9a8ecb9958b40395c1b68c50e41557d22176a",
     "license": "CC-BY-SA-4.0"
   },
   "model": {
@@ -22,6 +22,6 @@
     "sourcesSha256": "0f3ca30a36145f1c8368eb029385c1557fb8d2df0299503207ea66953484f50c",
     "selectionManifestSha256": "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d",
     "referenceTransformation": "GiNZA公開lemmaから抽出した用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。",
-    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v1"
+    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v2"
   }
 }

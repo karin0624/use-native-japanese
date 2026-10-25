@@ -7,6 +7,8 @@
 Node.js 20.18以上、Git、Git LFSを用意し、cloneしたリポジトリのルートで実行します。Pythonとuvの事前導入は不要です。
 
 ```sh
+git clone https://github.com/karin0624/use-native-japanese.git
+cd use-native-japanese
 git lfs install
 git lfs pull
 npm ci
@@ -14,6 +16,8 @@ npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.1
 ```
 
 `npm ci`はworkspaceの開発依存を導入します。その依存に含まれるuvで固定Pythonと`.venv`を準備し、`src/native_japanese`をeditableで導入します。GiNZA・ja_ginza・spaCy・Sudachi辞書とベクトル依存の版は`pyproject.toml`と`uv.lock`で固定します。現行方式はGiNZA（NER除外）で、KNP/Juman++のnative buildや大容量格フレームを要求しません。
+
+GiNZAは`vendor/ginza`の`5.3.0+nativejapanese.1`wheelへuvのlocal path sourceで固定します。`bunsetu_phrase_span`に既定Falseのkeyword引数`use_token_head`を追加し、Trueのときだけ既存探索を指定Tokenから開始する修正です。文法・lemma・依存辺・文節境界は変更しません。上流情報・patch・MIT帰属も同じディレクトリで管理します。Sudachiの形態素辞書は語・品詞・活用の解析用、既存の圧縮fastTextは別資源で名詞一般化用です。
 
 固定モデルと参照DBは`packages/textlint-rule-preset-native-japanese/assets`のGit LFS実体を使います。通常の開発では`setup-resources.py`による取得や参照の再構築は不要です。原コーパス本文と構築用正本はGit外に置き、公開しません。
 
@@ -26,7 +30,7 @@ npx textlint "docs/**/*.md"
 
 リポジトリの`.textlintrc.cjs`がcheckoutのJavaScriptと`.venv`のPythonを接続します。このリポジトリでは設定で開発用ルールを選択済みなので、`--rule`を追加せず実行します。Pythonは`-E -X utf8 -m native_japanese serve`で起動し、editableのソースとLFS資源を使います。変更後にtextlintを起動し直すとソースの変更が反映されます。tgzの作成・再導入、配布用backendのコピー、ルール更新のための`npm install`は不要です。
 
-プリセット内の`usage`は語の使い方への指摘（`error`）、`coverage`は辞書・解析の対応不足（`warning`）を担当します。両方のルールに同じ`command`と各`severity`を明示し、一つの本文を二重に検査器へ送らず共通の結果を使います。textlintではプリセット内の設定を上書きすると既定のseverityが引き継がれないため、`command`だけの指定にはしません（[textlint #1606](https://github.com/textlint/textlint/issues/1606)）。
+プリセットのルールは`usage`一つで、用例による支持のない語の使い方を通常の`error`として返します。支持ありなら無出力、解析や資源破損などの処理異常なら`systemerror`となります。外部検査器の`command`を上書きするときは`severity: "error"`も明示します（[textlint #1606](https://github.com/textlint/textlint/issues/1606)）。
 
 ### 通常のテスト
 
@@ -36,7 +40,7 @@ npm exec --no -- uv run --locked pytest
 npm exec --no -- uv run --locked ruff check .
 ```
 
-人工workerによる試験は通信・位置・寿命と、warningだけなら終了値0、errorを含むと1になることの回帰確認で、日本語の正しさ・訂正精度・モデル速度の証拠ではありません。
+人工workerによる試験は通信・位置・寿命と、無指摘なら終了値0、文章へのerrorを含むと1、処理異常なら失敗になることの回帰確認で、日本語の正しさ・訂正精度・モデル速度の証拠ではありません。
 
 CIではLinux・macOS・Windowsでpack前にcheckoutのソースをtextlintで検証し、Nodeテストも実行します。LinuxではPythonテストとRuffも実行します。これとは別に、配布試験では実tgzをリポジトリ外の別プロジェクトへ導入し、正本manifestに合う資源実体と帰属資料の同梱、空cacheからのmanaged Python準備、textlintのファイル・glob処理、公開Python CLIとの出力一致を確認します。取得後は`UV_OFFLINE=1`でも再利用できることを確かめます。これはuvの取得を禁止する確認で、OS全体の通信遮断、日本語の正誤・検出精度、一般的な実行時間を保証する試験ではありません。npm registryへの公開は行いません。[配布方針](npm-distribution-plan.md)も参照してください。
 
@@ -67,7 +71,7 @@ npm exec --no -- uv run --locked python tools/setup-resources.py --assets-dir /p
 flowchart LR
   A[検査する原文] --> B[GiNZAで語・関係・位置を取得]
   B --> C[配布参照へ照合]
-  C --> D[低支持の端点を位置付き指摘]
+  C --> D[支持のない端点を位置付き指摘]
   E[別出典の用例本文] --> F[同じ解析で抽出・取込]
   F --> G[出典付き正本 archive]
   G --> H[compile]
@@ -90,6 +94,6 @@ native-japanese lint --reference "$REFERENCE" --assets-dir "$ASSETS" input.txt
 
 異なる組合せN、群G、次元d=300、保存する文字列量Lに対し、参照保存は `O(N log(1/p) + Gd + L)`、誤認率p固定では線形です。同じ組合せの頻度・出典だけを増やしても、配布集合と群平均は増えません。
 
-自然参照1,024記事＋追加1記事の従来の測定では、約6.9万組合せ・1.9万群の配布参照が約71.2MB、Python本体・モデル・依存を含む検査環境が約913MBでした。後者はnpm配布で加わるuvやcacheを含む新たな総導入容量の測定ではありません。この規模では群平均の保存によって配布参照は正本より大きくなります。100万件のBloom単体2.89MBという部品値を総容量とは扱いません。モデル単体の容量も総導入容量ではなく、解析辞書・Python依存・配布参照・一時領域を含む実容量を別に確認します。
+v1解析契約での自然参照1,024記事＋追加1記事の従来の測定では、約6.9万組合せ・1.9万群の配布参照が約71.2MB、Python本体・モデル・依存を含む検査環境が約913MBでした。後者はnpm配布で加わるuvやcacheを含む新たな総導入容量の測定ではありません。この規模では群平均の保存によって配布参照は正本より大きくなります。100万件のBloom単体2.89MBという部品値を総容量とは扱いません。モデル単体の容量も総導入容量ではなく、解析辞書・Python依存・配布参照・一時領域を含む実容量を別に確認します。
 
 旧KNPのbuild・資源検証記録はGit履歴と[旧検証結果](runtime-validation.md)に保持し、現行の導入手順や成績へ転用しません。

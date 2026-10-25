@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const tarball = path.resolve(process.argv[2] ?? "");
 assert.ok(process.argv[2]?.endsWith(".tgz"), "検証するnpm packのtgzを引数で指定してください。");
+const wheelPath = "vendor/ginza/ginza-5.3.0+nativejapanese.1-py3-none-any.whl";
 const sourcePackage = fileURLToPath(new URL("../packages/textlint-rule-preset-native-japanese/", import.meta.url));
 const sourceManifest = JSON.parse(await readFile(path.join(sourcePackage, "assets/manifest.json"), "utf8"));
 const temporary = await mkdtemp(path.join(tmpdir(), "native-japanese-package-"));
@@ -72,13 +73,11 @@ function messages(result) {
 function expectedMessages(result) {
     assert.equal(result.offsetEncoding, "utf-16");
     const expected = result.diagnostics.map(({ range, message }) => ({ range, message, ruleId: "native-japanese/usage", severity: 2 }));
-    for (const item of result.unavailable) {
-        expected.push(...item.ranges.map(range => ({ range, message: `判定できません。${item.reason}`, ruleId: "native-japanese/coverage", severity: 1 })));
-    }
     return expected.sort((a, b) => a.range[0] - b.range[0] || a.range[1] - b.range[1]);
 }
 
 function jsonOutput(result) {
+    assert.doesNotMatch(`${result.stderr}\n${result.stdout}`, /No rules found/i);
     try { return JSON.parse(result.stdout); }
     catch (cause) {
         throw new Error(`実行結果がJSONではありません。\n${result.stderr}\n${result.stdout}`, { cause });
@@ -97,11 +96,13 @@ try {
         /^package\/licenses\/[A-Za-z0-9.-]+\.txt$/,
         /^package\/assets\/(?:manifest\.json|sources\.json|reference\.sqlite3|fasttext-ja-mini)$/,
         /^package\/backend\/(?:pyproject\.toml|uv\.lock)$/,
+        /^package\/backend\/vendor\/ginza\/ginza-5\.3\.0\+nativejapanese\.1-py3-none-any\.whl$/,
         /^package\/backend\/src\/native_japanese\/(?:[a-z_]+\.py|data\/native-assets\.json)$/
     ];
     for (const name of entries) assert.ok(allowed.some(pattern => pattern.test(name)), `同梱対象外のfile: ${name}`);
     assert.ok(entries.includes("package/THIRD_PARTY_NOTICES.md"));
     assert.ok(entries.includes("package/assets/sources.json"));
+    assert.ok(entries.includes(`package/backend/${wheelPath}`));
     const licenses = await readdir(path.join(sourcePackage, "licenses"));
     assert.deepEqual(entries.filter(name => name.startsWith("package/licenses/")).sort(),
         licenses.map(name => `package/licenses/${name}`).sort());
@@ -113,6 +114,14 @@ try {
     const installedBytes = (await Promise.all(entries.map(name => stat(path.join(installed, name.slice("package/".length))))))
         .reduce((bytes, info) => bytes + info.size, 0);
     console.log(`tarball ${(await stat(tarball)).size} bytes、同梱package実体 ${installedBytes} bytes（npm依存・Python/cacheは別）。`);
+    const lock = await readFile(path.join(installed, "backend/uv.lock"), "utf8");
+    assert.equal(lock, await readFile(new URL("../uv.lock", import.meta.url), "utf8"));
+    const ginzaLock = lock.split("[[package]]").find(entry => /^\s*name = "ginza"\r?\n/m.test(entry));
+    assert.ok(ginzaLock, "GiNZAの固定依存がuv.lockに必要です。");
+    assert.ok(ginzaLock.includes(`source = { path = "${wheelPath}" }`));
+    const wheelHash = ginzaLock.match(/filename = "ginza-5\.3\.0\+nativejapanese\.1-py3-none-any\.whl", hash = "sha256:([a-f0-9]{64})"/);
+    assert.ok(wheelHash, "同梱GiNZA wheelのhashがuv.lockに必要です。");
+    assert.equal(await sha256(path.join(installed, "backend", wheelPath)), wheelHash[1]);
     const assets = path.join(installed, "assets");
     const manifest = JSON.parse(await readFile(path.join(assets, "manifest.json"), "utf8"));
     assert.deepEqual(manifest, sourceManifest);

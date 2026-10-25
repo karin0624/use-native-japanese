@@ -17,13 +17,12 @@ async function setup(t, options = {}) {
     const config = configuration({ command: [process.execPath, fixture, path], ...options });
     const configFilePath = join(dir, ".textlintrc.json");
     await writeFile(configFilePath, JSON.stringify({ rules: { "preset-native-japanese": {
-        usage: { ...preset.rulesConfig.usage, ...config },
-        coverage: { ...preset.rulesConfig.coverage, ...config }
+        usage: { ...preset.rulesConfig.usage, ...config }
     } } }));
     const descriptor = await loadTextlintrc({ configFilePath });
     const linter = createLinter({ descriptor });
     t.after(async () => { getWorker(config).close(); await rm(dir, { recursive: true, force: true }); });
-    return { linter, descriptor, config, log: async () => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse) };
+    return { linter, config, log: async () => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse) };
 }
 
 test("強調・リンクを跨いで一括送信し、見出しと絵文字の位置を原文へ戻す", async t => {
@@ -65,65 +64,27 @@ test("inline codeを連結し、code内部と周囲を跨ぐ指摘を元位置�
     assert.deepEqual((await log())[0].texts, ["🍣 PodとPodを削除する", "雲を食べる。"]);
 });
 
-test("誤用指摘をerror、判定できない箇所をwarningとして元位置へ戻し、解析要求を共有する", async t => {
+test("指摘のない本文は無出力にし、指摘をerrorとして文書ごとに一括送信する", async t => {
     const { linter, log } = await setup(t);
-    const text = "🍣 `解析保留`。`参照対象`を十分離して**比較する**。雲を食べる。";
+    const text = "ご飯を食べる。\n\n雲を食べる。";
     const { messages } = await linter.lintText(text, "文書.md");
-    const expected = [
-        ["解析保留", "判定できません。単語どうしの関係を解析結果から読み取れません。"],
-        ["参照対象", "判定できません。用例の比較に必要なデータを利用できません。"],
-        ["比較する", "判定できません。用例の比較に必要なデータを利用できません。"]
-    ];
-    assert.equal(messages.length, 4);
-    for (const [word, message] of expected) {
-        const start = text.indexOf(word);
-        const actual = messages.find(item => item.index === start);
-        assert.deepEqual(actual.range, [start, start + word.length]);
-        assert.equal(actual.message, message);
-        assert.equal(actual.severity, 1);
-        assert.equal(actual.ruleId, "native-japanese/coverage");
-    }
-    const usage = messages.find(item => item.index === text.indexOf("雲"));
-    assert.match(usage.message, /^人工fixtureの指摘/);
-    assert.equal(usage.severity, 2);
-    assert.equal(usage.ruleId, "native-japanese/usage");
-    assert.equal(messages.find(item => item.index === text.indexOf("解析保留")).column, 5);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].index, text.indexOf("雲"));
+    assert.equal(messages[0].message, '人工fixtureの指摘 訂正候補: "ご飯を食べる"');
+    assert.equal(messages[0].severity, 2);
+    assert.equal(messages[0].ruleId, "native-japanese/usage");
+    assert.deepEqual((await log())[0].texts, ["ご飯を食べる。", "雲を食べる。"]);
     assert.equal((await log()).length, 1);
+    assert.deepEqual((await linter.lintText("ご飯を食べる。", "文書.md")).messages, []);
 });
 
 test("同じ本文とパスを再検査しても前の判定を再利用しない", async t => {
     const { linter, log } = await setup(t);
-    const text = "解析保留。雲を食べる。";
+    const text = "雲を食べる。";
     const first = await linter.lintText(text, "文書.md");
     const second = await linter.lintText(text, "文書.md");
     assert.deepEqual(second.messages, first.messages);
     assert.equal((await log()).length, 2);
-});
-
-test("subruleのcommandが異なるときは解析要求を共有しない", async t => {
-    const usage = await setup(t);
-    const coverage = await setup(t);
-    const linter = createLinter({ descriptor: usage.descriptor.shallowMerge({ rules: [{
-        ruleId: "native-japanese/usage", rule: preset.rules.usage,
-        options: { ...preset.rulesConfig.usage, ...usage.config }
-    }, {
-        ruleId: "native-japanese/coverage", rule: preset.rules.coverage,
-        options: { ...preset.rulesConfig.coverage, ...coverage.config }
-    }] }) });
-    const { messages } = await linter.lintText("解析保留。雲を食べる。", "文書.md");
-    assert.deepEqual(messages.map(message => message.severity), [1, 2]);
-    assert.equal((await usage.log()).length, 1);
-    assert.equal((await coverage.log()).length, 1);
-});
-
-test("保留応答の種類・理由・配列とUTF-16範囲を検証し、推測した位置を使わない", async t => {
-    const { linter } = await setup(t);
-    for (const variant of ["配列", "種類", "理由", "空範囲", "範囲型", "サロゲート", "範囲外"]) {
-        await assert.rejects(linter.lintText(`🍣保留不正${variant}`, "文書.md"),
-            /unavailable|UTF-16範囲/);
-    }
-    // unavailableを省略する従来workerも引き続き使える。
-    assert.equal((await linter.lintText("雲を食べる", "文書.md")).messages.length, 1);
 });
 
 test("codeのpadding・複数backtickと引用・リスト継続行の位置を保持する", async t => {

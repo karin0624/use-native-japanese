@@ -19,27 +19,8 @@ def result_json(result) -> dict:
     def ranges(spans):
         return [[offsets[start], offsets[end]] for start, end in spans]
 
-    unavailable = [
-        {"kind": "analysis", "ranges": ranges(item.ranges), "reason": item.reason}
-        for item in result.analysis.unavailable
-    ]
     relations = []
     for assessment in result.relations:
-        if assessment.status == "unavailable":
-            relation = assessment.relation
-            spans = (
-                *relation.predicate.ranges,
-                *(relation.argument.ranges if relation.argument else ()),
-            )
-            unavailable.append(
-                {
-                    "kind": "analysis"
-                    if not relation.queries or relation.unavailable_reasons
-                    else "reference",
-                    "ranges": ranges(dict.fromkeys(spans)),
-                    "reason": "".join(assessment.reasons),
-                }
-            )
         row = asdict(assessment)
         relation = row.pop("relation")
         for field in ("predicate", "argument"):
@@ -56,7 +37,6 @@ def result_json(result) -> dict:
             for item in result.diagnostics
         ],
         "relations": relations,
-        "unavailable": unavailable,
     }
 
 

@@ -24,11 +24,11 @@ npx textlint "docs/**/*.md"
 
 ## 指摘の読み方
 
-`「A」と「B」の組み合わせが不自然かもしれません。表現を確認してください。`は、収録した用例との比較で確認が必要になった箇所です。`usage`ルールが`error`として返します。これは検査が正常に完了した結果であり、誤用を確定したわけではありません。
+`「A」と「B」の組み合わせに合う用例が見つかりません。表現を見直してください。`は、収録した用例との比較で確認が必要になった箇所です。`usage`ルールが`error`として返します。これは検査が正常に完了した結果であり、誤用を確定したわけではありません。
 
-「判定できません。比較に使える用例が収録されていません。」などは、辞書・解析の対応不足を伝える`coverage`ルールの`warning`です。文章の修正を求めるものではありません。組み合わせそのものが未収録という理由だけで誤用とは判定せず、その使い方が日本語全体に存在しないという意味にもなりません。語の比較に必要なデータを得られない場合も、その理由を「判定できません。」に続けて表示します。
+支持がある関係は表示しません。Bloom陽性、または同じ述語・関係条件の用例名詞群との類似度0.35以上を支持とします。どちらもなければ、通常の文章への指摘を返します。ベクトルがない場合も類似度0とはせず、名詞一般化による追加支持がないものとして扱います。参照に支持がないことは、日本語全体でその用法が存在しない証明ではありません。
 
-textlintの出力ではルール名は`native-japanese/usage`と`native-japanese/coverage`になります。`warning`だけなら終了値は0、`error`を含むと1です。例外や壊れたデータによる処理失敗は、検査を完了できなかった異常です。正常な検査結果の`error`や、対応不足の`warning`とは区別して原因を確認してください。
+ルール名は`native-japanese/usage`一つです。指摘なしならtextlintの終了値は0、文章への`error`を含むと1です。解析失敗、壊れた資源、不正な数値、通信異常などは`systemerror`となり、検査失敗として終了します。辞書不足のwarningや保留状態は返しません。
 
 ## 独自参照・既存接続用の外部検査器（任意）
 
@@ -44,14 +44,13 @@ const command = [
 module.exports = {
     rules: {
         "preset-native-japanese": {
-            usage: { command, requestTimeoutMs: 120000, severity: "error" },
-            coverage: { command, requestTimeoutMs: 120000, severity: "warning" }
+            usage: { command, requestTimeoutMs: 120000, severity: "error" }
         }
     }
 };
 ```
 
-`command`などを上書きするときは、各ルールの`severity`も明示します。textlintではプリセット内の設定を上書きすると、プリセットで定めたseverityが引き継がれません（[textlint #1606](https://github.com/textlint/textlint/issues/1606)）。
+`command`などを上書きするときは、`usage`の`severity`も明示します。textlintではプリセット内の設定を上書きすると、プリセットで定めたseverityが引き継がれません（[textlint #1606](https://github.com/textlint/textlint/issues/1606)）。
 
 用例追加後は正本から参照を再compileし、新しい参照でworkerを起動します。正本DBを`command`へ渡す必要はありません。[出典付き用例の追加](runtime.md#出典付き用例を追加する)を参照してください。
 
@@ -73,13 +72,7 @@ textlintが送る`id`は文字列で、応答は入力と同じ値を返す。`r
 
 `range`は対応する`texts`要素内の0始まり・終端を含まないUTF-16コード単位の範囲。上例の絵文字は2単位を占める。Pythonの文字列添字はそのまま送らず、`len(text[:index].encode("utf-16-le")) // 2`等で変換する。範囲は空でなく、本文内に収まり、サロゲートペアの途中で切らない。`message`は空でない文字列。`suggestions`は省略可能な、空でない文字列の配列とする。候補の対象はその指摘範囲で、textlintのメッセージへ表示する。候補がなくても指摘できる。本体は現在`suggestions`による訂正案を生成しない。
 
-上の応答例では省略していますが、各結果に任意の`unavailable`配列を付けられます。各項目の`kind`は`analysis`または`reference`、`reason`は空でない文字列、`ranges`は空でない範囲配列です。各範囲には指摘と同じUTF-16の条件を適用します。例えば、同じ要求への比較不能だけの応答は次の形式です。
-
-```json
-{"id":"1","results":[{"offsetEncoding":"utf-16","diagnostics":[],"unavailable":[{"kind":"reference","reason":"比較に使える用例が収録されていません。","ranges":[[3,4],[5,8]]}]},{"offsetEncoding":"utf-16","diagnostics":[]}]}
-```
-
-textlintは各範囲に`warning`として「判定できません。理由」を表示します。`kind`は、解析結果から比較に必要な情報を得られなかった場合の`analysis`と、比較する用例やデータを利用できなかった場合の`reference`を区別します。表示する理由は、何が不足したかを自然な日本語で記述してください。用例の不足だけで文章に誤りがあるとは扱いません。本体が返す`relations`の内部構造は読まず、この表示には`unavailable`だけを使います。従来のworkerが配列を省略する場合も互換です。存在する場合は配列・項目・範囲の形式を検証し、不正なら処理エラーにします。
+本体の応答には`relations`も含まれますが、textlintは位置付き表示に`diagnostics`を使います。比較不能を別表示する配列はありません。支持のない関係も通常の`diagnostics`へ返します。
 
 要求単位の処理失敗は次の形式で返す。この場合、同じworkerを次の要求で利用できる。
 

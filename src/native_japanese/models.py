@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 
-NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-v1"
+NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-v2"
 PARSER_VERSIONS = {
-    "ginza": "5.3.0",
+    "ginza": "5.3.0+nativejapanese.1",
     "ja-ginza": "5.3.0",
     "spacy": "3.8.16",
     "SudachiPy": "0.6.11",
@@ -33,18 +33,9 @@ class Relation:
     predicate: Endpoint
     argument: Endpoint | None
     queries: tuple[Query, ...]
-    unavailable_reasons: tuple[str, ...] = ()
-    representations: tuple[tuple[str, str], ...] = ()
-
-
-@dataclass(frozen=True)
-class Unavailable:
-    ranges: tuple[tuple[int, int], ...]
-    reason: str
 
 
 @dataclass(frozen=True)
 class Analysis:
     text: str
     relations: tuple[Relation, ...]
-    unavailable: tuple[Unavailable, ...]
