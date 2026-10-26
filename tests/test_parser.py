@@ -165,7 +165,7 @@ def test_identifier_projection_preserves_external_usages_and_original_doc(parser
         }
 
 
-def test_overlapping_projection_keeps_both_original_phrases_and_queries(parser):
+def test_overlapping_projection_keeps_original_display_and_selected_tokens(parser):
     # 既存の誤解析を正用とせず、交差を作る範囲変換を適用しない契約だけ確かめる。
     text = (
         "続く技術文では、保持した<your-node-name>の>がKNPの格解析素性にも未escapeで出現し、"
@@ -177,10 +177,18 @@ def test_overlapping_projection_keeps_both_original_phrases_and_queries(parser):
     original_predicate = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
     original_noun = ginza.bunsetu_phrase_span(noun, use_token_head=True)
     query = Query(
-        tuple(token.lemma_ for token in original_predicate if not token.is_space),
+        tuple(
+            token.lemma_
+            for token in ginza.bunsetu_phrase_tokens(predicate, use_token_head=True)
+            if not token.is_space
+        ),
         predicate.pos_,
         predicate.dep_,
-        tuple(token.lemma_ for token in original_noun if not token.is_space),
+        tuple(
+            token.lemma_
+            for token in ginza.bunsetu_phrase_tokens(noun, use_token_head=True)
+            if not token.is_space
+        ),
         noun.pos_,
         "head",
     )
@@ -294,13 +302,48 @@ def test_phrase_api_default_and_non_head_behavior_are_preserved(parser):
     doc = parser._require_nlp()("家でお皿を洗います。")
     particle = next(token for token in doc if token.text == "を")
     assert ginza.bunsetu_phrase_span(particle).text == "お皿"
+    assert tuple(token.text for token in ginza.bunsetu_phrase_tokens(particle)) == ("お", "皿")
+    assert ginza.bunsetu_phrase_tokens(particle, use_token_head=True) == (particle,)
     noun = particle.head
     assert ginza.bunsetu_phrase_span(noun, use_token_head=True).text == "お皿"
 
 
-def test_phrase_contract_violation_is_a_system_error(parser, monkeypatch):
+def test_phrase_selection_excludes_gap_tokens_from_query_but_preserves_display():
+    # F5と同じ選択集合の穴を公開Docで再現し、元解析の正否とは別に接続を確かめる。
+    doc = Doc(
+        Vocab(),
+        words=["保持", "し", "た", "<", "your", "-", "node", "-", "name", ">", "の"],
+        spaces=[False] * 11,
+        pos=["VERB", "AUX", "AUX", "PUNCT", "PROPN", "SYM", "NOUN", "SYM", "NOUN", "SYM", "ADP"],
+        heads=[8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8],
+        deps=["advcl", "aux", "aux", "punct", "compound", "compound", "compound", "dep", "ROOT", "punct", "case"],
+        lemmas=["保持", "する", "た", "<", "Your", "-", "node", "-", "name", ">", "の"],
+    )
+    doc.user_data["bunsetu_heads"] = [0, 8]
+    doc.user_data["bunsetu_bi_labels"] = ["B", *(["I"] * 7), "B", "I", "I"]
+    original = doc.to_bytes()
+    selected = ginza.bunsetu_phrase_tokens(doc[0], use_token_head=True)
+    assert selected == (doc[0], doc[4], doc[5], doc[6])
+    assert ginza.bunsetu_phrase_tokens(doc[0], (), use_token_head=True) == (doc[0],)
+    assert ginza.bunsetu_phrase_span(doc[0], use_token_head=True).text == "保持した<your-node"
+    analysis = adapt_doc(doc, doc.text)
+    assert len(analysis.relations) == 1
+    relation = analysis.relations[0]
+    # 元の誤compound/advclを修正したことにはせず、非選択語の混入だけを防ぐ。
+    assert relation.queries == (
+        Query(("保持", "Your", "-", "node"), "VERB", "advcl", ("name",), "NOUN", "head"),
+    )
+    assert relation.predicate.text == "保持した<your-node"
+    assert relation.predicate.ranges == ((0, 14),)
+    assert relation.argument.text == "name"
+    assert relation.argument.ranges == ((15, 19),)
+    assert doc.to_bytes() == original
+
+
+@pytest.mark.parametrize("api", ["bunsetu_phrase_span", "bunsetu_phrase_tokens"])
+def test_phrase_contract_violation_is_a_system_error(parser, monkeypatch, api):
     # 依存の契約違反を通常の照合結果へ変換しない。
-    monkeypatch.setattr(ginza, "bunsetu_phrase_span", lambda token, **kwargs: token.doc[0:1])
+    monkeypatch.setattr(ginza, api, lambda token, **kwargs: token.doc[0:1])
     with pytest.raises(ValueError, match="中心となる語が含まれていません"):
         parser.analyze("重複を畳む。")
 

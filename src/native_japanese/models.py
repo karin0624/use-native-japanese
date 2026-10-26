@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 
-NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-identifier-span-v5"
+NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-identifier-tokens-v6"
 PARSER_VERSIONS = {
-    "ginza": "5.3.0+nativejapanese.1",
+    "ginza": "5.3.0+nativejapanese.2",
     "ja-ginza": "5.3.0",
     "spacy": "3.8.16",
     "SudachiPy": "0.6.11",

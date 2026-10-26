@@ -26,7 +26,7 @@
 
 ## 起動に用いる依存ソフトウェア
 
-- GiNZA `5.3.0+nativejapanese.1`：MIT。Megagon Labsの公式5.3.0へ、既存の句探索を元Tokenから開始する明示optionを当方が追加したもの。既定の解析動作は維持する。`backend/vendor/ginza/`に同梱し、元の著作権・許諾・免責原文は`licenses/ginza-MIT.txt`とwheel内に保持する。公式配布物のhash、改修差分、再作成手順はrepositoryの`vendor/ginza/`に記録する。[公式source](https://github.com/megagonlabs/ginza/tree/v5.3.0)。
+- GiNZA `5.3.0+nativejapanese.2`：MIT。Megagon Labsの公式5.3.0へ、既存の句探索を元Tokenから開始する明示optionと、その探索で選ばれたToken集合を返すAPIを当方が追加したもの。既定の解析動作は維持する。`backend/vendor/ginza/`に同梱し、元の著作権・許諾・免責原文は`licenses/ginza-MIT.txt`とwheel内に保持する。公式配布物のhash、改修差分、再作成手順はrepositoryの`vendor/ginza/`に記録する。[公式source](https://github.com/megagonlabs/ginza/tree/v5.3.0)。
 - `@dataiku/uv` 0.12.0：MIT。Copyright (c) 2025 Trevor Manz。[uv-npm](https://github.com/575-lab/uv-npm)。原文は`licenses/uv-npm-MIT.txt`。
 - uv 0.12.0：MITの許諾を使用。Copyright (c) 2025 Astral Software Inc.。[uv](https://github.com/astral-sh/uv/tree/0.12.0)。原文は`licenses/uv-MIT.txt`。
 - `compress-fasttext`：MIT。Copyright (c) 2020 David Dale。[compress-fasttext](https://github.com/avidale/compress-fasttext)。圧縮ソフトウェアのMITとモデル自体のCC条件は別である。原文は`licenses/compress-fasttext-MIT.txt`。

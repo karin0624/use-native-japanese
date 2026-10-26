@@ -17,7 +17,7 @@ npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.1
 
 `npm ci`はworkspaceの開発依存を導入します。その依存に含まれるuvで固定Pythonと`.venv`を準備し、`src/native_japanese`をeditableで導入します。GiNZA・ja_ginza・spaCy・Sudachi辞書とベクトル依存の版は`pyproject.toml`と`uv.lock`で固定します。現行方式はGiNZA（NER除外）で、KNP/Juman++のnative buildや大容量格フレームを要求しません。
 
-GiNZAは`vendor/ginza`の`5.3.0+nativejapanese.1`wheelへuvのlocal path sourceで固定します。`bunsetu_phrase_span`に既定Falseのkeyword引数`use_token_head`を追加し、Trueのときだけ既存探索を指定Tokenから開始する修正です。文法・lemma・依存辺・文節境界は変更しません。上流情報・patch・MIT帰属も同じディレクトリで管理します。Sudachiの形態素辞書は語・品詞・活用の解析用、既存の圧縮fastTextは別資源で名詞一般化用です。
+GiNZAは`vendor/ginza`の`5.3.0+nativejapanese.2`wheelへuvのlocal path sourceで固定します。`bunsetu_phrase_span`に既定Falseのkeyword引数`use_token_head`を追加し、Trueのときだけ既存探索を指定Tokenから開始する修正です。同じ探索の選択Tokenだけを返す`bunsetu_phrase_tokens`も追加公開し、adapterは包絡Spanを表示・位置に、選択Tokenを比較lemmaに使います。文法・lemma・依存辺・文節境界は変更しません。上流情報・patch・MIT帰属も同じディレクトリで管理します。Sudachiの形態素辞書は語・品詞・活用の解析用、既存の圧縮fastTextは別資源で名詞一般化用です。
 
 固定モデルと参照DBは`packages/textlint-rule-preset-native-japanese/assets`のGit LFS実体を使います。通常の開発では`setup-resources.py`による取得や参照の再構築は不要です。原コーパス本文と構築用正本はGit外に置き、公開しません。
 

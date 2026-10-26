@@ -72,7 +72,7 @@ native-japanese prepare --examples "$ARCHIVE" --reference "$REFERENCE" --assets-
 | キー | 内容 |
 | --- | --- |
 | `schema_version` | 整数`2` |
-| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-identifier-span-v5` |
+| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-identifier-tokens-v6` |
 | `predicate`・`noun` | 範囲拡張後の両端が重ならない関係では識別子を原文表記一項、それ以外は非空白tokenのlemmaとする文字列配列。重なる場合は両端とも元の公開句のlemma配列 |
 | `predicate_type` | `VERB`または`ADJ` |
 | `dependency` | 元依存ラベル（空でない文字列） |

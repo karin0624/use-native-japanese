@@ -5,14 +5,14 @@
   "upstream_sha256": "4eede7b0f7390bfdd325d3811e66de58d21f70471c215eea457e044dc5b766ad",
   "upstream_source": "https://github.com/megagonlabs/ginza/tree/v5.3.0",
   "upstream_commit": "624cc7fb642a082b0076c7c63c8e638abce400fb",
-  "version": "5.3.0+nativejapanese.1",
-  "wheel": "ginza-5.3.0+nativejapanese.1-py3-none-any.whl",
+  "version": "5.3.0+nativejapanese.2",
+  "wheel": "ginza-5.3.0+nativejapanese.2-py3-none-any.whl",
   "license": "MIT",
   "source_date_epoch": 1792886400,
   "build_tools": {
     "wheel": "0.48.0",
     "patch-ng": "1.19.1"
   },
-  "sha256": "2ae9cca124cf9b186a5c9092f5da72cb0d34e5e68e40faa8e6d6fbf30d670ead",
-  "size": 22558
+  "sha256": "4ad15f1d3ef083eb540c1da9d2490ff2fe7934226e5b4b1bb8eaf281c54fcbd7",
+  "size": 22729
 }

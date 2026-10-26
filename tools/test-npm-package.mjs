@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const tarball = path.resolve(process.argv[2] ?? "");
 assert.ok(process.argv[2]?.endsWith(".tgz"), "検証するnpm packのtgzを引数で指定してください。");
-const wheelPath = "vendor/ginza/ginza-5.3.0+nativejapanese.1-py3-none-any.whl";
+const wheelPath = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl";
 const sourcePackage = fileURLToPath(new URL("../packages/textlint-rule-preset-native-japanese/", import.meta.url));
 const sourceManifest = JSON.parse(await readFile(path.join(sourcePackage, "assets/manifest.json"), "utf8"));
 const temporary = await mkdtemp(path.join(tmpdir(), "native-japanese-package-"));

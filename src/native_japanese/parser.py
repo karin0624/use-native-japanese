@@ -6,7 +6,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 import ginza
 import spacy
-from spacy.tokens import Doc, Span
+from spacy.tokens import Doc, Span, Token
 
 from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation
 
@@ -26,25 +26,26 @@ def _identifier_spans(doc: Doc) -> tuple[Span, ...]:
 
 
 def _close_phrase(phrase: Span, identifiers: tuple[Span, ...]) -> Span:
-    # 元の句を残し、重なる識別子の字句境界まで表示・照会範囲を閉じる。
+    # 元の句を残し、重なる識別子の字句境界まで表示範囲を閉じる。
     overlaps = [span for span in identifiers if span.start < phrase.end and phrase.start < span.end]
     start = min([phrase.start, *(span.start for span in overlaps)])
     end = max([phrase.end, *(span.end for span in overlaps)])
     return phrase.doc[start:end]
 
 
-def _phrase_lemmas(phrase: Span, identifiers_by_token: dict[int, Span]) -> tuple[str, ...]:
+def _phrase_lemmas(
+    tokens: tuple[Token, ...], identifiers_by_token: dict[int, Span]
+) -> tuple[str, ...]:
     lemmas = []
-    index = phrase.start
-    while index < phrase.end:
-        identifier = identifiers_by_token.get(index)
+    previous_identifier = None
+    for token in tokens:
+        identifier = identifiers_by_token.get(token.i)
         if identifier is not None:
-            lemmas.append(identifier.text)
-            index = identifier.end
-        else:
-            if not phrase.doc[index].is_space:
-                lemmas.append(phrase.doc[index].lemma_)
-            index += 1
+            if identifier is not previous_identifier:
+                lemmas.append(identifier.text)
+            previous_identifier = identifier
+        elif not token.is_space:
+            lemmas.append(token.lemma_)
     return tuple(lemmas)
 
 
@@ -105,9 +106,15 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
 
             predicate_phrase = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
             noun_phrase = ginza.bunsetu_phrase_span(noun, use_token_head=True)
+            # 包絡Spanは表示用であり、途中の非選択語を比較lemmaに含めない。
+            predicate_tokens = ginza.bunsetu_phrase_tokens(predicate, use_token_head=True)
+            noun_tokens = ginza.bunsetu_phrase_tokens(noun, use_token_head=True)
             if any(
-                not phrase.start <= token.i < phrase.end
-                for token, phrase in ((predicate, predicate_phrase), (noun, noun_phrase))
+                not phrase.start <= token.i < phrase.end or token not in tokens
+                for token, phrase, tokens in (
+                    (predicate, predicate_phrase, predicate_tokens),
+                    (noun, noun_phrase, noun_tokens),
+                )
             ):
                 raise ValueError("解析された語句に、その語句の中心となる語が含まれていません。")
             expanded_predicate = _close_phrase(predicate_phrase, identifiers)
@@ -118,22 +125,20 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             noun_start, noun_end = noun_endpoint.ranges[0]
             phrase_identifiers = identifiers_by_token
             if predicate_start < noun_end and noun_start < predicate_end:
-                # 両端を別の範囲に対応できなければ、句とlemmaを双方とも元のまま使う。
+                # 両端を別の範囲に対応できなければ、識別子への投影を双方とも戻す。
                 phrase_identifiers = {}
                 predicate_endpoint = _endpoint(predicate_phrase, text)
                 noun_endpoint = _endpoint(noun_phrase, text)
-            else:
-                predicate_phrase, noun_phrase = expanded_predicate, expanded_noun
             relations.append(
                 Relation(
                     predicate_endpoint,
                     noun_endpoint,
                     (
                         Query(
-                            _phrase_lemmas(predicate_phrase, phrase_identifiers),
+                            _phrase_lemmas(predicate_tokens, phrase_identifiers),
                             predicate.pos_,
                             dependency,
-                            _phrase_lemmas(noun_phrase, phrase_identifiers),
+                            _phrase_lemmas(noun_tokens, phrase_identifiers),
                             noun.pos_,
                             noun_role,
                         ),
