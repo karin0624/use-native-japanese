@@ -16,7 +16,8 @@ adapterではSpanを原文表示と位置へ、選択Tokenを比較lemmaへ使�
 既存の識別子投影と両端重複時の復帰を保ち、識別子に属する選択Tokenは
 その原文表記一項へ投影する。表示範囲に含まれるだけの非選択Tokenはlemmaへ入れない。
 この集合は既存の探索結果であり、正しい語彙境界を保証しない。
-F5の誤compoundとadvclは残り、助動詞等の包絡による混入だけを解消する。
+解析Doc内のF5の誤compoundとadvclは残る。Token API追加は助動詞等の包絡による混入だけを解消する。
+現adapterのv8ではadvclを独立用法へ変換しないが、正しいacl等へ元解析を修復したものではない。
 
 固定モデルの自然文では、文節headと`bunsetu_span(token).root`が異なることがある。
 例えば「『後漢書』（ごかんじょ）は、中国後漢朝について書かれた歴史書。」を含む
@@ -44,7 +45,7 @@ uv run --no-project --with wheel==0.48.0 --with patch-ng==1.19.1 python tools/re
 
 このwheelはpure Pythonの`py3-none-any`で、cloneのuvとnpm内のuvで同じものを使う。
 利用時にpatch適用やwheelの再buildは行わない。現adapterの抽出契約は
-`ginza-bunsetu-lemma-no-ner-identifier-roles-v7`とし、旧参照DBとは混用しない。
+`ginza-bunsetu-lemma-no-ner-identifier-roles-v8`とし、旧参照DBとは混用しない。
 
 ## 採用前の確認
 

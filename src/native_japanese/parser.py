@@ -94,14 +94,10 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             dependent_identifier = identifiers_by_token.get(dependent.i)
             if head_identifier is not None and head_identifier is dependent_identifier:
                 continue
-            # UDが明示する役割と方向を、元Tokenの品詞による選別より先に読む。
+            # UDが明示する名詞項・名詞修飾の役割と方向だけを読む。
             if dependent.dep in _ARGUMENT_RELATIONS:
                 predicate, noun, noun_role = original_head, dependent, "dependent"
             elif dependent.dep in _MODIFIER_RELATIONS:
-                predicate, noun, noun_role = dependent, original_head, "head"
-            elif original_head.pos_ in {"VERB", "ADJ"} and dependent.pos_ in {"NOUN", "PROPN"}:
-                predicate, noun, noun_role = original_head, dependent, "dependent"
-            elif original_head.pos_ in {"NOUN", "PROPN"} and dependent.pos_ in {"VERB", "ADJ"}:
                 predicate, noun, noun_role = dependent, original_head, "head"
             else:
                 continue

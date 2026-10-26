@@ -165,38 +165,58 @@ def test_identifier_projection_preserves_external_usages_and_original_doc(parser
         }
 
 
-def test_overlapping_projection_keeps_original_display_and_selected_tokens(parser):
-    # 既存の誤解析を正用とせず、交差を作る範囲変換を適用しない契約だけ確かめる。
+def test_clause_modifier_is_not_reinterpreted_as_a_nominal_argument(parser):
+    # 元advclを名詞の項関係と読み替えない。誤った元句・依存は修復しない。
     text = (
         "続く技術文では、保持した<your-node-name>の>がKNPの格解析素性にも未escapeで出現し、"
         "rhoknpが公開形式を読めず処理失敗になりました。"
     )
     doc = parser._require_nlp()(text)
     predicate = next(token for token in doc if token.lemma_ == "保持")
-    noun = next(token for token in doc if token.text == "name")
-    original_predicate = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
-    original_noun = ginza.bunsetu_phrase_span(noun, use_token_head=True)
-    query = Query(
-        tuple(
-            token.lemma_
-            for token in ginza.bunsetu_phrase_tokens(predicate, use_token_head=True)
-            if not token.is_space
+    assert predicate.dep_ == "advcl"
+    original = doc.to_bytes()
+    result = adapt_doc(doc, text)
+    assert all(query.dependency != "advcl" for row in result.relations for query in row.queries)
+    assert doc.to_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "text,modifier,expected",
+    [
+        (
+            "新たな句の変化も記録し、局所改善を全体の精度向上と読み替えない。",
+            "advcl",
+            {
+                Query(("記録",), "VERB", "nsubj", ("変化",), "NOUN", "dependent"),
+                Query(("読み替える",), "NOUN", "obj", ("局所", "改善"), "NOUN", "dependent"),
+                Query(("読み替える",), "NOUN", "obl", ("精度", "向上"), "NOUN", "dependent"),
+            },
         ),
-        predicate.pos_,
-        predicate.dep_,
-        tuple(
-            token.lemma_
-            for token in ginza.bunsetu_phrase_tokens(noun, use_token_head=True)
-            if not token.is_space
+        (
+            "構築・監査用正本は組合せと全出典対応を保存する。",
+            "nmod",
+            {
+                Query(
+                    ("保存",), "VERB", "nsubj", ("構築", "・", "監査", "用", "正本"), "NOUN", "dependent"
+                ),
+                Query(("保存",), "VERB", "obj", ("全", "出典", "対応"), "NOUN", "dependent"),
+            },
         ),
-        noun.pos_,
-        "head",
+    ],
+)
+def test_modifier_edges_do_not_create_argument_usages_but_clause_arguments_remain(
+    parser, text, modifier, expected
+):
+    doc = parser._require_nlp()(text)
+    assert any(
+        token.dep_ == modifier and {token.pos_, token.head.pos_} == {"VERB", "NOUN"}
+        for token in doc
     )
-    usages = [row for row in adapt_doc(doc, text).relations if query in row.queries]
-    assert len(usages) == 1
-    assert usages[0].predicate == _endpoint(original_predicate, text)
-    assert usages[0].argument == _endpoint(original_noun, text)
-    assert usages[0].predicate.ranges[0][1] <= usages[0].argument.ranges[0][0]
+    original = doc.to_bytes()
+    queries = {query for row in adapt_doc(doc, text).relations for query in row.queries}
+    assert expected <= queries
+    assert all(query.dependency != modifier for query in queries)
+    assert doc.to_bytes() == original
 
 
 def test_identifier_root_does_not_replace_original_endpoint_type(parser):
@@ -367,14 +387,14 @@ def test_phrase_api_default_and_non_head_behavior_are_preserved(parser):
 
 
 def test_phrase_selection_excludes_gap_tokens_from_query_but_preserves_display():
-    # F5と同じ選択集合の穴を公開Docで再現し、元解析の正否とは別に接続を確かめる。
+    # 選択集合の穴と識別子の投影重複を公開Docで再現し、接続を確かめる。
     doc = Doc(
         Vocab(),
         words=["保持", "し", "た", "<", "your", "-", "node", "-", "name", ">", "の"],
         spaces=[False] * 11,
         pos=["VERB", "AUX", "AUX", "PUNCT", "PROPN", "SYM", "NOUN", "SYM", "NOUN", "SYM", "ADP"],
         heads=[8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8],
-        deps=["advcl", "aux", "aux", "punct", "compound", "compound", "compound", "dep", "ROOT", "punct", "case"],
+        deps=["acl", "aux", "aux", "punct", "compound", "compound", "compound", "dep", "ROOT", "punct", "case"],
         lemmas=["保持", "する", "た", "<", "Your", "-", "node", "-", "name", ">", "の"],
     )
     doc.user_data["bunsetu_heads"] = [0, 8]
@@ -387,9 +407,9 @@ def test_phrase_selection_excludes_gap_tokens_from_query_but_preserves_display()
     analysis = adapt_doc(doc, doc.text)
     assert len(analysis.relations) == 1
     relation = analysis.relations[0]
-    # 元の誤compound/advclを修正したことにはせず、非選択語の混入だけを防ぐ。
+    # 句選択の正否を修正したことにはせず、非選択語の混入と両端の重複投影を防ぐ。
     assert relation.queries == (
-        Query(("保持", "Your", "-", "node"), "VERB", "advcl", ("name",), "NOUN", "head"),
+        Query(("保持", "Your", "-", "node"), "VERB", "acl", ("name",), "NOUN", "head"),
     )
     assert relation.predicate.text == "保持した<your-node"
     assert relation.predicate.ranges == ((0, 14),)
