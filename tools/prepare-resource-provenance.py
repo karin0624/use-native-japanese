@@ -8,7 +8,7 @@ import json
 import shutil
 from pathlib import Path
 
-REFERENCE_SHA256 = "f9286a57bab35a15c5de2b323049040b60dc809e0d202d98cb770e16eeed4b47"
+REFERENCE_SHA256 = "b0ff104d3aac398665adb893f56626e76520a1c6c0785d5a61f0705ceab8b1b5"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
 
@@ -72,7 +72,7 @@ def main() -> None:
     if len(articles) != 1025 or len(seen) != 6463:
         raise ValueError("固定した1,025記事・6,463区間ではありません")
     for source, size, expected in (
-        (args.reference, 70557696, REFERENCE_SHA256),
+        (args.reference, 70631424, REFERENCE_SHA256),
         (args.model, 21944687, MODEL_SHA256),
     ):
         if source.stat().st_size != size or digest(source) != expected:
@@ -113,7 +113,7 @@ def main() -> None:
             "schemaVersion": 1,
             "reference": {
                 "file": "reference.sqlite3",
-                "bytes": 70557696,
+                "bytes": 70631424,
                 "sha256": REFERENCE_SHA256,
                 "license": "CC-BY-SA-4.0",
             },
@@ -135,10 +135,12 @@ def main() -> None:
                     "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d"
                 ),
                 "referenceTransformation": (
-                    "GiNZA公開lemmaから抽出した用例集合のBloom filterと、"
-                    "異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。"
+                    "既存Docと元Tokenの品詞・細分類・依存辺を保ち、GiNZA公開lemmaと"
+                    "原文へ対応させたASCII識別子Spanから抽出した用例集合のBloom filterと、"
+                    "異なる名詞列を等重みとした300次元ベクトル群平均。"
+                    "両端の範囲が重なる場合は元の句・語彙表記を保持する。原文は収録しない。"
                 ),
-                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v3",
+                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-span-v5",
             },
         },
     )

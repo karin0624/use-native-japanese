@@ -20,7 +20,7 @@
 
 元資料は[2019-02-01の日本語Wikipedia dump](https://archive.org/details/jawiki-20190201)で、[dump metadata](https://archive.org/metadata/jawiki-20190201)はCC BY-SA 3.0を示す。この資料から作られた[MIRACL日本語コーパス](https://huggingface.co/datasets/miracl/miracl-corpus)のParquet revision `4b58cd23ae34af0f77c424b98807901cf472c377`を使用した。MIRACL contributorsによるplain text抽出・区間分割にも帰属する。[カード](https://huggingface.co/datasets/miracl/miracl-corpus/blob/d921ec7e349ce0d28daf30b2da9da5ee698bef0d/README.md)のApache 2.0表示を保持するが、Wikipedia本文をApache 2.0へ再許諾したとは扱わない。MIRACLの公開ライセンス原文も`licenses/MIRACL-Apache-2.0.txt`に収録する。
 
-既取得subsetから記事IDの固定hash順で選んだ1,024記事と、追加記事「ヴァニティ・フェア (バンド)」の合計1,025記事・6,463区間を使用した。本文をGiNZAの公開lemmaで解析して用例集合を作り、Bloom filterと、異なる名詞列を等重みとした上記モデルの300次元ベクトル群平均へ変換した。本文全文、構築用正本、個々の出典本文は含まない。これらの抽出・変換・平均化が当方による変更であり、元記事や元モデルが本DBを提供したものではない。
+既取得subsetから記事IDの固定hash順で選んだ1,024記事と、追加記事「ヴァニティ・フェア (バンド)」の合計1,025記事・6,463区間を使用した。本文をNERなしのGiNZAで解析し、既存Docのtoken・lemma・依存辺・文節境界を変更せず、用例の型には元Tokenの品詞・細分類を用いた。通常の語は公開lemma、ASCII識別子は原文に対応する連続Spanを照合語彙として用例集合を作った。両端の範囲が重なる場合は元の句・語彙表記を保持する。公開`is_space`に該当する空白tokenは語彙の対象から外した。この集合をBloom filterと、異なる名詞列を等重みとした上記モデルの300次元ベクトル群平均へ変換した。本文全文、構築用正本、個々の出典本文は含まない。これらの抽出・変換・平均化が当方による変更であり、元記事や元モデルが本DBを提供したものではない。
 
 元資料とモデルのCC BY-SA 3.0を保持し、派生DBにはその§4(b)が認める同じ条件の後継版を適用する。ライセンス原文：`licenses/CC-BY-SA-3.0.txt`、`licenses/CC-BY-SA-4.0.txt`。
 

@@ -49,11 +49,11 @@ NER除外の確認では、固定46本文と既知性能用3本文のtoken全属
 
 ## 製品へ接続する契約
 
-解析はGiNZA 5.3.0、ja_ginza 5.3.0、SudachiPy 0.6.11、SudachiDict-core 20260723、spaCy 3.8.16、NER除外で固定する。現契約を`ginza-bunsetu-lemma-no-ner-v3`とし、旧KNPの用例JSONLを自動変換しない。旧データは旧branchと記録へ保持する。
+解析はGiNZA 5.3.0、ja_ginza 5.3.0、SudachiPy 0.6.11、SudachiDict-core 20260723、spaCy 3.8.16、NER除外で固定する。現契約を`ginza-bunsetu-lemma-no-ner-v4`とし、旧KNPの用例JSONLを自動変換しない。旧データは旧branchと記録へ保持する。
 
-GiNZAの既存`bunsetu_phrase_span`へkeyword引数`use_token_head=False`を追加する最小修正を使う。`True`の場合だけ既存探索の開始点を文節span.rootから指定Tokenへ変える。文法・lemma・依存辺・文節境界は変更しない。これにより自然参照で観測した元Tokenを含まないphraseを修正した。修正版wheel、上流hash、差分、MIT帰属を`vendor/ginza`へ保持し、uvのlocal path sourceで固定する。v3の対象選択で全6,463本文から参照を再生成し、v1・v2契約の参照とは混用しない。
+GiNZAの既存`bunsetu_phrase_span`へkeyword引数`use_token_head=False`を追加する最小修正を使う。`True`の場合だけ既存探索の開始点を文節span.rootから指定Tokenへ変える。文法・lemma・依存辺・文節境界は変更しない。これにより自然参照で観測した元Tokenを含まないphraseを修正した。修正版wheel、上流hash、差分、MIT帰属を`vendor/ginza`へ保持し、uvのlocal path sourceで固定する。同じ全6,463本文から現契約の参照を再生成し、以前の契約の参照とは混用しない。
 
-照会は、公開phrase全体のlemma配列としての`predicate`と`noun`、元主辞の`predicate_type`と`noun_type`、元依存ラベル`dependency`、名詞の元方向`noun_role`（head/dependent）で表す。名詞がNOUN/PROPN、もう一端がVERB/ADJの関係を両方向で選び、名詞側の公開`tag_`の品詞階層に「助動詞語幹」がある候補は語彙照合へ送らない。元位置・表層は別途保持する。主辞一語への縮約や述語類義語への置換はしない。
+照会は、公開phraseから`Token.is_space`の空白を除いたlemma配列としての`predicate`と`noun`、元主辞の`predicate_type`と`noun_type`、元依存ラベル`dependency`、名詞の元方向`noun_role`（head/dependent）で表す。名詞がNOUN/PROPN、もう一端がVERB/ADJの関係を両方向で選び、空白の主辞や、名詞側の公開`tag_`の品詞階層に「助動詞語幹」がある候補は語彙照合へ送らない。表示範囲の先頭末尾の空白tokenは除き、内部の原文の空白は保持する。主辞一語への縮約や述語類義語への置換はしない。
 
 [課題13](https://github.com/karin0624/use-native-japanese/issues/13)では、READMEの「『重複を畳む』のような語の使い方」から「よう」と「畳む」への不適切な指摘を再現した。「よう」はNOUNだが詳細品詞は「形状詞-助動詞語幹」であり、v2の全品詞対列挙ではこの機能的な関係も語彙選択として照合していた。公式GiNZAと最小修正版でtoken・依存・既定phraseが一致することを確認し、構文を修復せず、既存辞書の分類に沿って検査対象を選ぶv3へ更新した。「名詞-助動詞語幹」も同じ分類として扱い、語別の除外一覧は持たない。引用内の「重複を畳む」のobjと、「本を読む人」など通常の修飾関係は保持する。用例の支持不足と対象選択の不備を区別し、支持方式・閾値・三つの出力結果は維持する。
 
