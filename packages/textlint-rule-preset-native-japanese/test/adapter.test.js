@@ -51,6 +51,40 @@ test("同じ文字を含む入れ子装飾でも該当する葉の位置を使�
     assert.equal(messages[0].range[1], text.indexOf("。"));
 });
 
+test("Markdownとテキストの単改行を同じ本文で送り、空行と見出しで分ける", async t => {
+    const { linter, log } = await setup(t);
+    const text = "前文。\n🍣 雲を食べる。\n\n後文。";
+    for (const extension of ["md", "txt", "text"]) {
+        const { messages } = await linter.lintText(text, `文書.${extension}`);
+        assert.deepEqual(messages.map(message => message.range), [
+            [text.indexOf("雲"), text.indexOf("雲") + "雲を食べる".length]
+        ]);
+        assert.equal(messages[0].line, 2);
+        assert.equal(messages[0].column, 4);
+    }
+    const heading = "前文。\n続き。\n# 見出し\n後文。";
+    await linter.lintText(heading, "見出し.md");
+    assert.deepEqual((await log()).map(request => request.texts), [
+        ["前文。\n🍣 雲を食べる。", "後文。"],
+        ["前文。\n🍣 雲を食べる。", "後文。"],
+        ["前文。\n🍣 雲を食べる。", "後文。"],
+        ["前文。\n続き。", "見出し", "後文。"]
+    ]);
+});
+
+test("リスト継続行の本文を一括送信し、改行前後の指摘を原文へ戻す", async t => {
+    const { linter, log } = await setup(t);
+    const text = "- 雲を食べる。\n   🍣 Podを削除する。";
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual((await log())[0].texts, ["雲を食べる。\n🍣 Podを削除する。"]);
+    assert.deepEqual(messages.map(message => message.range), [
+        [text.indexOf("雲"), text.indexOf("雲") + "雲を食べる".length],
+        [text.indexOf("Pod"), text.indexOf("Pod") + "Podを削除する".length]
+    ]);
+    assert.equal(messages[1].line, 2);
+    assert.equal(messages[1].column, 7);
+});
+
 test("inline codeを連結し、code内部と周囲を跨ぐ指摘を元位置へ戻す", async t => {
     const { linter, log } = await setup(t);
     const text = "# 🍣 `Pod`と`Pod`を[削除する](url)\n\n`雲を食べる`。";

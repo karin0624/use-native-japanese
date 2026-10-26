@@ -1,13 +1,19 @@
 import { StringSource } from "textlint-util-to-string";
+import { extname } from "node:path";
 import { parse, preprocess, postprocess } from "micromark";
 import { configuration, getWorker } from "./worker.js";
 
 // 文書全体を解析し、引用・リストの継続行も既存parserの位置情報で扱う。
-function inlineCodeSpans(text) {
+function inlineSources(text) {
     const events = postprocess(parse().document().write(preprocess()(text, undefined, true)));
     const spans = new Map();
+    const tokens = [];
     let current;
     for (const [kind, token, context] of events) {
+        if (kind === "enter" && ["data", "lineEnding"].includes(token.type)) {
+            const range = [token.start.offset, token.end.offset];
+            tokens.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
+        }
         if (kind === "enter" && token.type === "codeText") {
             current = { raw: text.slice(token.start.offset, token.end.offset), children: [] };
             spans.set(`${token.start.offset}:${token.end.offset}`, current);
@@ -18,11 +24,11 @@ function inlineCodeSpans(text) {
             current.children.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
         }
     }
-    return spans;
+    return { spans, tokens };
 }
 
 // ASTの葉とparserが返したtokenだけを接続し、Markdownの装飾位置を推測しない。
-export function plainSegments(node, codeSpans) {
+export function plainSegments(node, codeSpans, tokens = []) {
     const segments = [];
     let leaves = [];
     const flush = () => {
@@ -54,7 +60,17 @@ export function plainSegments(node, codeSpans) {
             // entity/escapeなど、復元できない葉は境界として扱い、前後を連結しない。
             if (typeof value !== "string" || child.raw !== value || end - start !== value.length ||
                 node.raw.slice(start - node.range[0], end - node.range[0]) !== value) {
-                flush();
+                // 継続行の字下げはparserのtoken範囲を使い、可視本文の完全一致を確認する。
+                const parts = child.type === "Str"
+                    ? tokens.filter(leaf => leaf.range[0] >= start && leaf.range[1] <= end) : [];
+                if (parts.length && parts.map(leaf => leaf.value).join("") === value &&
+                    parts.every(leaf => leaf.raw === leaf.value &&
+                        leaf.range[1] - leaf.range[0] === leaf.value.length &&
+                        node.raw.slice(leaf.range[0] - node.range[0], leaf.range[1] - node.range[0]) === leaf.raw)) {
+                    leaves.push(...parts);
+                } else {
+                    flush();
+                }
             } else {
                 leaves.push({ ...child, type: "Str", value });
             }
@@ -66,6 +82,27 @@ export function plainSegments(node, codeSpans) {
     node.children?.forEach(visit);
     flush();
     return segments;
+}
+
+// text parserが行単位に分けたParagraphを、空行までの本文へ戻す。
+function textParagraphs(document) {
+    const nodes = [];
+    const children = document.children;
+    for (let i = 0; i < children.length; i++) {
+        const first = children[i];
+        if (first.type !== "Paragraph") continue;
+        let last = first;
+        const leaves = [...first.children];
+        while (children[i + 1]?.type === "Break" && children[i + 2]?.type === "Paragraph") {
+            leaves.push(children[i + 1], ...children[i + 2].children);
+            last = children[i + 2];
+            i += 2;
+        }
+        nodes.push({ ...first, range: [first.range[0], last.range[1]],
+            raw: document.raw.slice(first.range[0], last.range[1]),
+            loc: { start: first.loc.start, end: last.loc.end }, children: leaves });
+    }
+    return nodes;
 }
 
 function splitsSurrogate(text, index) {
@@ -83,8 +120,10 @@ function usage(context, options = {}) {
         [Syntax.Header]: collect,
         async [`${Syntax.Document}:exit`](document) {
             if (!nodes.length) return;
-            const codeSpans = inlineCodeSpans(document.raw);
-            const segments = nodes.flatMap(node => plainSegments(node, codeSpans));
+            const { spans, tokens } = inlineSources(document.raw);
+            const paragraphs = [".txt", ".text"].includes(extname(context.getFilePath?.() ?? ""))
+                ? textParagraphs(document) : nodes;
+            const segments = paragraphs.flatMap(node => plainSegments(node, spans, tokens));
             const results = segments.length
                 ? await getWorker(config).request(segments.map(segment => segment.text)) : [];
             for (let i = 0; i < results.length; i++) {
