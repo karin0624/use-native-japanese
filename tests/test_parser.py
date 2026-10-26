@@ -84,6 +84,120 @@ def test_literal_text_and_batch_results_preserve_original_positions(parser):
     )
 
 
+def test_identifier_projection_preserves_external_usages_and_original_doc(parser):
+    name = "textlint-rule-preset-native-japanese-0.1.0.tgz"
+    cases = [
+        (
+            "npm registryには未公開です。配布された"
+            f"{name}を利用先のプロジェクトに置き、そのルートで導入・実行します。",
+            name,
+            name,
+            (name,),
+            {("配布", "acl", "head"), ("置く", "obj", "dependent")},
+        ),
+        (
+            "Node.js 20.18以上を使います。他のプロジェクトでルールを利用する場合と、"
+            "このリポジトリをcloneして開発・検証する場合で、準備が異なります。",
+            "Node.js",
+            "Node.js 20.18以上",
+            ("Node.js", "20.18", "以上"),
+            {("使う", "obj", "dependent")},
+        ),
+        (
+            "bunsetu_phrase_spanを呼び出します。",
+            "bunsetu_phrase_span",
+            "bunsetu_phrase_span",
+            ("bunsetu_phrase_span",),
+            {("呼び出す", "obj", "dependent")},
+        ),
+        (
+            "sample_module-v2.3.zipを配置します。",
+            "sample_module-v2.3.zip",
+            "sample_module-v2.3.zip",
+            ("sample_module-v2.3.zip",),
+            {("配置", "obj", "dependent")},
+        ),
+        (
+            "以下を順に実行します。cd use-native-japaneseで入るリポジトリのルート"
+            "（package.jsonと.textlintrc.cjsのあるディレクトリ）で、"
+            "Git LFSの資源実体と開発依存を準備します。",
+            "use-native-japanese",
+            "cd use-native-japanese",
+            ("CD", "use-native-japanese"),
+            {("入る", "obl", "dependent")},
+        ),
+        (
+            "同じrecordの時間内訳では、用例token化は0.187秒、"
+            "読取り・decode・項目分割は1.251秒だった。token化が主要因とは断定しない。"
+            "残り全文をtokenごとにcopyする実装は、標準re.finditerで元文字列の位置を進める処理へ"
+            "簡素化できる。区切り・空token・末尾＊を含む出力同一を確認した範囲だけ変更し、"
+            "別の索引・採点・日本語規則は追加しない。根拠は同scratchのminimal-connection-proposal.md。",
+            "re.finditer",
+            "標準re.finditer",
+            ("標準", "re.finditer"),
+            {("進める", "obl", "dependent")},
+        ),
+    ]
+    batched = list(parser.analyze_many(text for text, *_ in cases))
+    for (text, identifier, phrase, noun_lemmas, expected), analysis in zip(
+        cases, batched, strict=True
+    ):
+        doc = parser._require_nlp()(text)
+        original = doc.to_bytes()
+        assert adapt_doc(doc, text) == analysis
+        assert doc.to_bytes() == original
+        name_start = text.index(identifier)
+        name_end = name_start + len(identifier)
+        related = []
+        for row in analysis.relations:
+            assert all(
+                end <= name_start or name_end <= start for start, end in row.predicate.ranges
+            )
+            if any(start < name_end and name_start < end for start, end in row.argument.ranges):
+                assert row.argument.text == phrase
+                phrase_start = text.index(phrase)
+                assert row.argument.ranges == ((phrase_start, phrase_start + len(phrase)),)
+                related.extend(row.queries)
+        assert len(related) == len(expected)
+        assert set(related) == {
+            Query((predicate,), "VERB", dependency, noun_lemmas, "NOUN", role)
+            for predicate, dependency, role in expected
+        }
+
+
+def test_identifier_root_does_not_replace_original_endpoint_type(parser):
+    text = (
+        "textlint 15.8.0と、公式ルールでも使われるtextlint-util-to-string 3.3.4を使い、"
+        "抽出・位置変換を既存APIへ委ねる。StringSourceは最終リリースが2023-11-25で、"
+        "readonly対応PR #25は未merge。保守が活発とはみなさない。"
+    )
+    result = parser.analyze(text)
+    query = Query(("使う",), "VERB", "acl", ("textlint-util-to-string",), "NOUN", "head")
+    usages = [row for row in result.relations if query in row.queries]
+    assert len(usages) == 1
+    start = text.index("textlint-util-to-string")
+    assert usages[0].argument.text == "textlint-util-to-string"
+    assert usages[0].argument.ranges == ((start, start + len("textlint-util-to-string")),)
+
+
+def test_projected_relation_is_unique_at_each_distinct_occurrence(parser):
+    # 日本語Wikipedia「T-34 (航空機)」著者、2019-02-01版、CC BY-SA 3.0。
+    # https://ja.wikipedia.org/?curid=160755 （自然参照160755#5から一文を引用）
+    sentence = (
+        "ターボプロップエンジンへの換装により性能が向上したほか、兵器訓練型のT-34C-1では"
+        "主翼下に4箇所のハードポイントが設けられ、COIN機としての運用も可能だった。"
+    )
+    result = parser.analyze(sentence + sentence)
+    query = Query(("設ける",), "VERB", "obl", ("T-34C-1",), "NOUN", "dependent")
+    usages = [row for row in result.relations if query in row.queries]
+    assert len(usages) == 2
+    start = sentence.index("T-34C-1")
+    predicate_start = sentence.index("設け")
+    for row, offset in zip(usages, (0, len(sentence)), strict=True):
+        assert row.argument.ranges == ((offset + start, offset + start + len("T-34C-1")),)
+        assert row.predicate.ranges == ((offset + predicate_start, offset + predicate_start + 2),)
+
+
 def test_whitespace_is_not_a_lemma_and_internal_surface_spaces_are_preserved(parser):
     text = "精度を食べる。\n精度を食べる。"
     result = parser.analyze(text)

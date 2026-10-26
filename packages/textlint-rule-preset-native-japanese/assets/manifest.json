@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "reference": {
     "file": "reference.sqlite3",
-    "bytes": 70627328,
-    "sha256": "739477e95b41e33dbd4fc2b464f4ddc1103c3e5bda6d16ab48f643836cf9d82a",
+    "bytes": 70631424,
+    "sha256": "b0ff104d3aac398665adb893f56626e76520a1c6c0785d5a61f0705ceab8b1b5",
     "license": "CC-BY-SA-4.0"
   },
   "model": {
@@ -21,7 +21,7 @@
     "sourcesFile": "sources.json",
     "sourcesSha256": "0f3ca30a36145f1c8368eb029385c1557fb8d2df0299503207ea66953484f50c",
     "selectionManifestSha256": "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d",
-    "referenceTransformation": "GiNZA公開lemmaから抽出した用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。",
-    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v4"
+    "referenceTransformation": "既存Docと元Tokenの品詞・細分類・依存辺を保ち、GiNZA公開lemmaと原文へ対応させたASCII識別子Spanから抽出した用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。",
+    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-span-v5"
   }
 }
