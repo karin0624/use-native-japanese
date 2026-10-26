@@ -11,6 +11,11 @@ from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation
 
 
 def _endpoint(span: Span, text: str) -> Endpoint:
+    # 非語彙の空白tokenを端点から外し、句の内部にある原文の空白は残す。
+    tokens = tuple(token for token in span if not token.is_space)
+    if not tokens:
+        raise ValueError("解析された語句に、空白以外の語が含まれていません。")
+    span = span.doc[tokens[0].i : tokens[-1].i + 1]
     start, end = span.start_char, span.end_char
     if not 0 <= start < end <= len(text) or text[start:end] != span.text:
         raise ValueError("解析された語句が、原文の対応する位置の文字列と一致しません。")
@@ -48,6 +53,9 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             else:
                 continue
 
+            if predicate.is_space or noun.is_space:
+                continue
+
             if "助動詞語幹" in noun.tag_.split("-"):
                 continue
 
@@ -66,10 +74,10 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
                     noun_endpoint,
                     (
                         Query(
-                            tuple(token.lemma_ for token in predicate_phrase),
+                            tuple(token.lemma_ for token in predicate_phrase if not token.is_space),
                             predicate.pos_,
                             dependency,
-                            tuple(token.lemma_ for token in noun_phrase),
+                            tuple(token.lemma_ for token in noun_phrase if not token.is_space),
                             noun.pos_,
                             noun_role,
                         ),

@@ -10,7 +10,7 @@ from test_examples import lines, record
 from test_support import vector_model
 
 from native_japanese import reference
-from native_japanese.examples import Examples, extract_records, group_key
+from native_japanese.examples import Examples, extract_records, group_key, query_key
 from native_japanese.models import Query
 from native_japanese.parser import Parser
 
@@ -190,16 +190,19 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
         reference.Reference(output, assets)
 
 
-def test_public_phrase_whitespace_lemma_survives_the_reference_pipeline(tmp_path, monkeypatch):
-    # 公開phraseが含む改行lemmaを削除せず、解析から配布照会まで同じキーで保持する。
+def test_whitespace_does_not_change_usage_keys_or_reference_support(tmp_path, monkeypatch):
+    # 改行を語彙へ混ぜず、抽出した用法で改行のない入力も支持できる。
     text = "重複を畳む。\n重複を畳む。"
     parser = Parser()
     try:
         analysis = parser.analyze(text)
+        plain = parser.analyze(text.splitlines()[0])
     finally:
         parser.close()
     queries = [query for relation in analysis.relations for query in relation.queries]
-    assert any("\n" in query.noun for query in queries)
+    plain_query = plain.relations[0].queries[0]
+    assert queries
+    assert all(query_key(query) == query_key(plain_query) for query in queries)
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(
@@ -207,6 +210,6 @@ def test_public_phrase_whitespace_lemma_survives_the_reference_pipeline(tmp_path
         )
         assert set(examples.iter_usages()) == set(queries)
     monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
-    reference.build_reference(source, output, tmp_path)
+    assert reference.build_reference(source, output, tmp_path)["usages"] == 1
     with reference.Reference(output, tmp_path) as runtime:
-        assert all(runtime.assess(query).indexed for query in queries)
+        assert all(runtime.assess(query).indexed for query in [plain_query, *queries])

@@ -8,7 +8,7 @@ import json
 import shutil
 from pathlib import Path
 
-REFERENCE_SHA256 = "f9286a57bab35a15c5de2b323049040b60dc809e0d202d98cb770e16eeed4b47"
+REFERENCE_SHA256 = "739477e95b41e33dbd4fc2b464f4ddc1103c3e5bda6d16ab48f643836cf9d82a"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
 
@@ -72,7 +72,7 @@ def main() -> None:
     if len(articles) != 1025 or len(seen) != 6463:
         raise ValueError("固定した1,025記事・6,463区間ではありません")
     for source, size, expected in (
-        (args.reference, 70557696, REFERENCE_SHA256),
+        (args.reference, 70627328, REFERENCE_SHA256),
         (args.model, 21944687, MODEL_SHA256),
     ):
         if source.stat().st_size != size or digest(source) != expected:
@@ -113,7 +113,7 @@ def main() -> None:
             "schemaVersion": 1,
             "reference": {
                 "file": "reference.sqlite3",
-                "bytes": 70557696,
+                "bytes": 70627328,
                 "sha256": REFERENCE_SHA256,
                 "license": "CC-BY-SA-4.0",
             },
@@ -138,7 +138,7 @@ def main() -> None:
                     "GiNZA公開lemmaから抽出した用例集合のBloom filterと、"
                     "異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。"
                 ),
-                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v3",
+                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-v4",
             },
         },
     )

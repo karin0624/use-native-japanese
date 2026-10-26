@@ -72,14 +72,14 @@ native-japanese prepare --examples "$ARCHIVE" --reference "$REFERENCE" --assets-
 | キー | 内容 |
 | --- | --- |
 | `schema_version` | 整数`2` |
-| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-v3` |
-| `predicate`・`noun` | 公開句全体の空でないlemma文字列配列 |
+| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-v4` |
+| `predicate`・`noun` | 公開句から`Token.is_space`の空白tokenを除いた、空でないlemma文字列配列 |
 | `predicate_type` | `VERB`または`ADJ` |
 | `dependency` | 元依存ラベル（空でない文字列） |
 | `noun_type` | `NOUN`または`PROPN` |
 | `noun_role` | 元方向`head`または`dependent` |
 | `source_id`・`observation_id`・`source_url` | 出典ID・出現ID・所在（空でない文字列） |
 
-`extract`は本文hashと端点から出現IDを作り、原文全文はJSONL・正本DBへ保存しません。名詞側が既存辞書の「助動詞語幹」に分類される関係は抽出しません。v2以前のJSONL・参照DBとは混用せず、元本文から再抽出します。旧KNPのschema1とも互換ではありません。抽出は正用の保証ではなく、出典選定・原文・利用条件の確認が必要です。評価入力や手作業の正解登録を、別出典追加の改善実証へ数えません。
+`extract`は本文hashと端点から出現IDを作り、原文全文はJSONL・正本DBへ保存しません。表示端点は公開句内の非空白tokenの先頭から末尾までとし、句の内部にある原文の空白は保持します。名詞側が既存辞書の「助動詞語幹」に分類される関係は抽出しません。v3以前のJSONL・参照DBとは混用せず、同じ元本文から再抽出します。旧KNPのschema1とも互換ではありません。抽出は正用の保証ではなく、出典選定・原文・利用条件の確認が必要です。評価入力や手作業の正解登録を、別出典追加の改善実証へ数えません。
 
 `import`は再解析せず形式を検証して正本SQLiteへ保存します。不正行があれば取込全体を取り消し、同じ記録の再取込は重複登録しません。返却JSONは`records`（処理行数）、`usages_added`（新しい組合せ）、`observations_added`（新しい出典対応）です。同じ組合せの頻度・出典だけを増やしても、配布集合や等票の群平均は増えません。容量の増え方は[構成](architecture.md#用例の構築と配布を分ける)を参照してください。旧方式の[検証結果](runtime-validation.md)は履歴であり、現方式の精度・遅延を示しません。

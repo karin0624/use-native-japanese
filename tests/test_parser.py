@@ -6,7 +6,7 @@ from spacy.tokens import Doc
 from spacy.vocab import Vocab
 
 from native_japanese.models import PARSER_VERSIONS, Query
-from native_japanese.parser import Parser, adapt_doc
+from native_japanese.parser import Parser, _endpoint, adapt_doc
 
 
 @pytest.fixture(scope="module")
@@ -82,6 +82,53 @@ def test_literal_text_and_batch_results_preserve_original_positions(parser):
         and row.argument.ranges[0][1] == expected_noun + 2
         for row in batched[0].relations
     )
+
+
+def test_whitespace_is_not_a_lemma_and_internal_surface_spaces_are_preserved(parser):
+    text = "精度を食べる。\n精度を食べる。"
+    result = parser.analyze(text)
+    assert len(result.relations) == 2
+    first, second = result.relations
+    assert first.queries == second.queries
+    assert second.queries[0].noun == ("精度",)
+    assert second.argument.text == "精度"
+    assert second.argument.ranges == ((8, 10),)
+    # 公開Docの内部空白は、語彙照会用tokenを選ぶ処理で消さない。
+    doc = Doc(
+        parser._require_nlp().vocab,
+        words=["\n", "New", "York", "\n"],
+        spaces=[False, True, False, False],
+    )
+    endpoint = _endpoint(doc[:], doc.text)
+    assert endpoint.text == "New York"
+    assert endpoint.ranges == ((1, 9),)
+
+
+@pytest.mark.parametrize(
+    "words,pos,dependency",
+    [
+        (["考える", "\n"], ["VERB", "NOUN"], "acl"),
+        (["精度", "\n"], ["NOUN", "VERB"], "obj"),
+    ],
+)
+def test_whitespace_heads_are_not_lexical_candidates(parser, monkeypatch, words, pos, dependency):
+    # 参照701226#14で観測した、改行がNOUNの主辞になる公開属性を再現する。
+    # 粗い品詞が述語側に付いた場合も、同じis_space情報で語彙候補から外す。
+    doc = Doc(
+        parser._require_nlp().vocab,
+        words=words,
+        spaces=[False, False],
+        pos=pos,
+        heads=[1, 1],
+        deps=[dependency, "ROOT"],
+        lemmas=words,
+    )
+    assert doc[1].is_space
+    monkeypatch.setattr(ginza, "bunsetu_head_tokens", lambda document: [document[1]])
+    monkeypatch.setattr(
+        ginza, "sub_phrases", lambda callback: lambda token: [(dependency, callback(doc[0]))]
+    )
+    assert not adapt_doc(doc, doc.text).relations
 
 
 def test_noun_predicates_do_not_become_comparison_failures(parser):
