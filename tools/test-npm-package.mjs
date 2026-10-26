@@ -96,10 +96,12 @@ try {
         /^package\/licenses\/[A-Za-z0-9.-]+\.txt$/,
         /^package\/assets\/(?:manifest\.json|sources\.json|reference\.sqlite3|fasttext-ja-mini)$/,
         /^package\/backend\/(?:pyproject\.toml|uv\.lock)$/,
-        /^package\/backend\/vendor\/ginza\/ginza-5\.3\.0\+nativejapanese\.1-py3-none-any\.whl$/,
         /^package\/backend\/src\/native_japanese\/(?:[a-z_]+\.py|data\/native-assets\.json)$/
     ];
-    for (const name of entries) assert.ok(allowed.some(pattern => pattern.test(name)), `同梱対象外のfile: ${name}`);
+    for (const name of entries) assert.ok(
+        name === `package/backend/${wheelPath}` || allowed.some(pattern => pattern.test(name)),
+        `同梱対象外のfile: ${name}`
+    );
     assert.ok(entries.includes("package/THIRD_PARTY_NOTICES.md"));
     assert.ok(entries.includes("package/assets/sources.json"));
     assert.ok(entries.includes(`package/backend/${wheelPath}`));
