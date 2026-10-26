@@ -58,8 +58,12 @@ def test_complete_query_and_array_boundaries_are_preserved(tmp_path):
         QUERY,
         replace(QUERY, predicate=("比べる", "補助")),
         replace(QUERY, predicate_type="ADJ"),
+        replace(QUERY, predicate_type="NOUN"),
         replace(QUERY, dependency="nsubj"),
         replace(QUERY, noun_type="PROPN"),
+        replace(QUERY, noun_type="ADJ"),
+        replace(QUERY, noun_type="PRON"),
+        replace(QUERY, noun_type="NUM"),
         replace(QUERY, noun_role="head"),
         replace(QUERY, noun=("a/+ b",)),
         replace(QUERY, noun=("a/", "+ b")),
@@ -98,6 +102,9 @@ def test_extract_has_stable_occurrences_without_changing_lemmas():
         {"noun": [""]},
         {"noun": [None]},
         {"noun_role": "推定"},
+        {"predicate_type": "動作"},
+        {"noun_type": "名詞"},
+        {"predicate_type": "SPACE"},
     ):
         with pytest.raises(ValueError):
             validate_record({**first[0], **changed})

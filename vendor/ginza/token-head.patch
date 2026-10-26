@@ -1,10 +1,50 @@
 --- a/ginza/bunsetu_recognizer.py
 +++ b/ginza/bunsetu_recognizer.py
-@@ -117,7 +117,13 @@
+@@ -1,6 +1,6 @@
+ import re
+ from collections import deque
+-from typing import Dict, Iterable, List, Optional, Set
++from typing import Dict, Iterable, List, Optional, Set, Tuple
+ 
+ from spacy.language import Language
+ from spacy.tokens import Doc, Span, Token
+@@ -10,6 +10,7 @@
+     "bunsetu_span",
+     "bunsetu_spans",
+     "bunsetu_phrase_span",
++    "bunsetu_phrase_tokens",
+     "bunsetu_phrase_spans",
+     "bunsetu_head_list",
+     "bunsetu_head_tokens",
+@@ -117,7 +118,7 @@
      ]
  
  
 -def bunsetu_phrase_span(token: Token, phrase_relations: Iterable[str] = PHRASE_RELATIONS) -> Span:
++def _bunsetu_phrase_tokens(token, phrase_relations, use_token_head):
+     def _traverse(head, _bunsetu, result):
+         queue = deque([head])
+         while queue:
+@@ -135,7 +136,29 @@
+ 
+     bunsetu = bunsetu_span(token)
+     phrase_tokens = []
+-    _traverse(bunsetu.root, bunsetu, phrase_tokens)
++    _traverse(token if use_token_head else bunsetu.root, bunsetu, phrase_tokens)
++    return bunsetu, phrase_tokens
++
++
++def bunsetu_phrase_tokens(
++        token: Token,
++        phrase_relations: Iterable[str] = PHRASE_RELATIONS,
++        *,
++        use_token_head: bool = False,
++) -> Tuple[Token, ...]:
++    """既存の句探索で選ばれたTokenだけを原文順に返す。包絡範囲の中間語は含めない。"""
++    _, phrase_tokens = _bunsetu_phrase_tokens(token, phrase_relations, use_token_head)
++    return tuple(token.doc[index] for index in sorted(phrase_tokens))
++
++
 +def bunsetu_phrase_span(
 +        token: Token,
 +        phrase_relations: Iterable[str] = PHRASE_RELATIONS,
@@ -12,15 +52,17 @@
 +        use_token_head: bool = False,
 +) -> Span:
 +    """指定時は元Tokenを主辞として既存の句探索を行う。既定の文節解釈は変えない。"""
-     def _traverse(head, _bunsetu, result):
-         queue = deque([head])
-         while queue:
-@@ -135,7 +141,7 @@
- 
-     bunsetu = bunsetu_span(token)
-     phrase_tokens = []
--    _traverse(bunsetu.root, bunsetu, phrase_tokens)
-+    _traverse(token if use_token_head else bunsetu.root, bunsetu, phrase_tokens)
++    bunsetu, phrase_tokens = _bunsetu_phrase_tokens(token, phrase_relations, use_token_head)
      start = min(phrase_tokens)
      end = max(phrase_tokens) + 1
      return Span(token.doc, start=start, end=end, label=bunsetu.label_)
+--- a/ginza/__init__.py
++++ b/ginza/__init__.py
+@@ -34,6 +34,7 @@
+     "bunsetu_span",
+     "bunsetu_spans",
+     "bunsetu_phrase_span",
++    "bunsetu_phrase_tokens",
+     "bunsetu_phrase_spans",
+     "bunsetu_head_list",
+     "bunsetu_head_tokens",

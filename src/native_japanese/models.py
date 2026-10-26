@@ -2,9 +2,13 @@
 
 from dataclasses import dataclass
 
-NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-identifier-span-v5"
+NORMALIZATION_IDENTITY = "ginza-bunsetu-lemma-no-ner-identifier-roles-v8"
+# UDの標準UPOS。端点の役割と元の品詞を分け、両方の交換・参照検証で共用する。
+UD_POS_TAGS = frozenset(
+    "ADJ ADP ADV AUX CCONJ DET INTJ NOUN NUM PART PRON PROPN PUNCT SCONJ SYM VERB X".split()
+)
 PARSER_VERSIONS = {
-    "ginza": "5.3.0+nativejapanese.1",
+    "ginza": "5.3.0+nativejapanese.2",
     "ja-ginza": "5.3.0",
     "spacy": "3.8.16",
     "SudachiPy": "0.6.11",

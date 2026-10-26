@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "sys_platform == 'linux' or sys_platform == 'win32'",
@@ -627,8 +627,8 @@ wheels = [
 
 [[package]]
 name = "ginza"
-version = "5.3.0+nativejapanese.1"
-source = { path = "vendor/ginza/ginza-5.3.0+nativejapanese.1-py3-none-any.whl" }
+version = "5.3.0+nativejapanese.2"
+source = { path = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl" }
 dependencies = [
     { name = "plac" },
     { name = "spacy" },
@@ -637,7 +637,7 @@ dependencies = [
     { name = "thinc-apple-ops", marker = "python_full_version < '3.13' and platform_machine == 'arm64' and sys_platform == 'darwin'" },
 ]
 wheels = [
-    { filename = "ginza-5.3.0+nativejapanese.1-py3-none-any.whl", hash = "sha256:2ae9cca124cf9b186a5c9092f5da72cb0d34e5e68e40faa8e6d6fbf30d670ead" },
+    { filename = "ginza-5.3.0+nativejapanese.2-py3-none-any.whl", hash = "sha256:4ad15f1d3ef083eb540c1da9d2490ff2fe7934226e5b4b1bb8eaf281c54fcbd7" },
 ]
 
 [package.metadata]
@@ -2014,7 +2014,7 @@ requires-dist = [
     { name = "compress-fasttext", specifier = "==0.1.5" },
     { name = "fsspec", marker = "extra == 'setup'", specifier = "==2026.7.0" },
     { name = "gensim", specifier = "==4.4.0" },
-    { name = "ginza", path = "vendor/ginza/ginza-5.3.0+nativejapanese.1-py3-none-any.whl" },
+    { name = "ginza", path = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl" },
     { name = "ja-ginza", specifier = "==5.3.0" },
     { name = "numpy", specifier = "==2.5.4" },
     { name = "pyprobables", specifier = "==0.7.0" },

@@ -74,6 +74,33 @@ def test_every_non_noun_condition_stays_fixed(setup_reference):
             assert not support.indexed and support.score is None and support.total == 0
 
 
+def test_role_queries_roundtrip_with_original_predicate_and_argument_pos(tmp_path, monkeypatch):
+    parser = Parser()
+    try:
+        analyses = [
+            parser.analyze(text)
+            for text in ("既存の読込み経路を再利用する。", "基本形を返す。")
+        ]
+    finally:
+        parser.close()
+    queries = {query for analysis in analyses for row in analysis.relations for query in row.queries}
+    assert {(query.predicate_type, query.noun_type) for query in queries} == {
+        ("NOUN", "NOUN"),
+        ("VERB", "ADJ"),
+    }
+    source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
+    with Examples(source, writable=True) as examples:
+        examples.import_jsonl(
+            lines(*(row for analysis in analyses for row in extract_records(analysis, "出典", "url")))
+        )
+    with Examples(source) as examples:
+        assert set(examples.iter_usages()) == queries
+    monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
+    assert reference.build_reference(source, output, tmp_path)["usages"] == len(queries)
+    with reference.Reference(output, tmp_path) as runtime:
+        assert all(runtime.assess(query).indexed for query in queries)
+
+
 def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
     source, output, assets = setup_reference
     reference.build_reference(source, output, assets)
@@ -190,19 +217,26 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
         reference.Reference(output, assets)
 
 
-def test_whitespace_does_not_change_usage_keys_or_reference_support(tmp_path, monkeypatch):
-    # 改行を語彙へ混ぜず、抽出した用法で改行のない入力も支持できる。
+def test_whitespace_is_not_lexical_and_raw_pos_remains_in_reference_keys(tmp_path, monkeypatch):
+    # 改行を語彙へ混ぜない。元POSが違う出現は、黙って落としたり同一視したりしない。
     text = "重複を畳む。\n重複を畳む。"
     parser = Parser()
     try:
         analysis = parser.analyze(text)
         plain = parser.analyze(text.splitlines()[0])
+        doc = parser._require_nlp()(text)
     finally:
         parser.close()
     queries = [query for relation in analysis.relations for query in relation.queries]
     plain_query = plain.relations[0].queries[0]
-    assert queries
-    assert all(query_key(query) == query_key(plain_query) for query in queries)
+    assert len(queries) == 2
+    for relation, query in zip(analysis.relations, queries, strict=True):
+        assert query.predicate == plain_query.predicate
+        assert query.noun == plain_query.noun
+        assert query.dependency == plain_query.dependency
+        start, end = relation.predicate.ranges[0]
+        assert query.predicate_type == doc.char_span(start, end).root.pos_
+    usage_count = len({query_key(query) for query in queries})
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(
@@ -210,6 +244,6 @@ def test_whitespace_does_not_change_usage_keys_or_reference_support(tmp_path, mo
         )
         assert set(examples.iter_usages()) == set(queries)
     monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
-    assert reference.build_reference(source, output, tmp_path)["usages"] == 1
+    assert reference.build_reference(source, output, tmp_path)["usages"] == usage_count
     with reference.Reference(output, tmp_path) as runtime:
         assert all(runtime.assess(query).indexed for query in [plain_query, *queries])

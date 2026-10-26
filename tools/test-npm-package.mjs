@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const tarball = path.resolve(process.argv[2] ?? "");
 assert.ok(process.argv[2]?.endsWith(".tgz"), "検証するnpm packのtgzを引数で指定してください。");
-const wheelPath = "vendor/ginza/ginza-5.3.0+nativejapanese.1-py3-none-any.whl";
+const wheelPath = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl";
 const sourcePackage = fileURLToPath(new URL("../packages/textlint-rule-preset-native-japanese/", import.meta.url));
 const sourceManifest = JSON.parse(await readFile(path.join(sourcePackage, "assets/manifest.json"), "utf8"));
 const temporary = await mkdtemp(path.join(tmpdir(), "native-japanese-package-"));
@@ -96,10 +96,12 @@ try {
         /^package\/licenses\/[A-Za-z0-9.-]+\.txt$/,
         /^package\/assets\/(?:manifest\.json|sources\.json|reference\.sqlite3|fasttext-ja-mini)$/,
         /^package\/backend\/(?:pyproject\.toml|uv\.lock)$/,
-        /^package\/backend\/vendor\/ginza\/ginza-5\.3\.0\+nativejapanese\.1-py3-none-any\.whl$/,
         /^package\/backend\/src\/native_japanese\/(?:[a-z_]+\.py|data\/native-assets\.json)$/
     ];
-    for (const name of entries) assert.ok(allowed.some(pattern => pattern.test(name)), `同梱対象外のfile: ${name}`);
+    for (const name of entries) assert.ok(
+        name === `package/backend/${wheelPath}` || allowed.some(pattern => pattern.test(name)),
+        `同梱対象外のfile: ${name}`
+    );
     assert.ok(entries.includes("package/THIRD_PARTY_NOTICES.md"));
     assert.ok(entries.includes("package/assets/sources.json"));
     assert.ok(entries.includes(`package/backend/${wheelPath}`));
@@ -119,7 +121,9 @@ try {
     const ginzaLock = lock.split("[[package]]").find(entry => /^\s*name = "ginza"\r?\n/m.test(entry));
     assert.ok(ginzaLock, "GiNZAの固定依存がuv.lockに必要です。");
     assert.ok(ginzaLock.includes(`source = { path = "${wheelPath}" }`));
-    const wheelHash = ginzaLock.match(/filename = "ginza-5\.3\.0\+nativejapanese\.1-py3-none-any\.whl", hash = "sha256:([a-f0-9]{64})"/);
+    const wheelEntry = ginzaLock.split(/\r?\n/).find(line =>
+        line.trimStart().startsWith(`{ filename = "${path.basename(wheelPath)}", hash = `));
+    const wheelHash = wheelEntry?.match(/hash = "sha256:([a-f0-9]{64})"/);
     assert.ok(wheelHash, "同梱GiNZA wheelのhashがuv.lockに必要です。");
     assert.equal(await sha256(path.join(installed, "backend", wheelPath)), wheelHash[1]);
     const assets = path.join(installed, "assets");

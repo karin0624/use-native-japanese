@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "reference": {
     "file": "reference.sqlite3",
-    "bytes": 70631424,
-    "sha256": "b0ff104d3aac398665adb893f56626e76520a1c6c0785d5a61f0705ceab8b1b5",
+    "bytes": 88936448,
+    "sha256": "43967eab2791d5e9e01f96bb6a8724c5afde86c84a5d317e30aede5a2421ba49",
     "license": "CC-BY-SA-4.0"
   },
   "model": {
@@ -21,7 +21,7 @@
     "sourcesFile": "sources.json",
     "sourcesSha256": "0f3ca30a36145f1c8368eb029385c1557fb8d2df0299503207ea66953484f50c",
     "selectionManifestSha256": "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d",
-    "referenceTransformation": "既存Docと元Tokenの品詞・細分類・依存辺を保ち、GiNZA公開lemmaと原文へ対応させたASCII識別子Spanから抽出した用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。両端の範囲が重なる場合は元の句・語彙表記を保持する。原文は収録しない。",
-    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-span-v5"
+    "referenceTransformation": "既存Docと依存辺を保ち、公開UD関係nsubj/obj/iobj/obl/acl/amodの役割・向きだけを読み取り、両端の元UPOSを保持する。GiNZAの既存句探索が選んだTokenの公開lemmaを照合し、ASCII識別子は選択Tokenから原文表記へ投影する。表示Span内の非選択Tokenを照合Token集合へ追加しない。用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。両端の表示範囲が重なる場合は識別子への投影を戻し、表示は元の句、照合は選択Tokenのlemmaを用いる。原文は収録しない。",
+    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-roles-v8"
   }
 }

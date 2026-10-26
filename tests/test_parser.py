@@ -165,30 +165,58 @@ def test_identifier_projection_preserves_external_usages_and_original_doc(parser
         }
 
 
-def test_overlapping_projection_keeps_both_original_phrases_and_queries(parser):
-    # 既存の誤解析を正用とせず、交差を作る範囲変換を適用しない契約だけ確かめる。
+def test_clause_modifier_is_not_reinterpreted_as_a_nominal_argument(parser):
+    # 元advclを名詞の項関係と読み替えない。誤った元句・依存は修復しない。
     text = (
         "続く技術文では、保持した<your-node-name>の>がKNPの格解析素性にも未escapeで出現し、"
         "rhoknpが公開形式を読めず処理失敗になりました。"
     )
     doc = parser._require_nlp()(text)
     predicate = next(token for token in doc if token.lemma_ == "保持")
-    noun = next(token for token in doc if token.text == "name")
-    original_predicate = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
-    original_noun = ginza.bunsetu_phrase_span(noun, use_token_head=True)
-    query = Query(
-        tuple(token.lemma_ for token in original_predicate if not token.is_space),
-        predicate.pos_,
-        predicate.dep_,
-        tuple(token.lemma_ for token in original_noun if not token.is_space),
-        noun.pos_,
-        "head",
+    assert predicate.dep_ == "advcl"
+    original = doc.to_bytes()
+    result = adapt_doc(doc, text)
+    assert all(query.dependency != "advcl" for row in result.relations for query in row.queries)
+    assert doc.to_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "text,modifier,expected",
+    [
+        (
+            "新たな句の変化も記録し、局所改善を全体の精度向上と読み替えない。",
+            "advcl",
+            {
+                Query(("記録",), "VERB", "nsubj", ("変化",), "NOUN", "dependent"),
+                Query(("読み替える",), "NOUN", "obj", ("局所", "改善"), "NOUN", "dependent"),
+                Query(("読み替える",), "NOUN", "obl", ("精度", "向上"), "NOUN", "dependent"),
+            },
+        ),
+        (
+            "構築・監査用正本は組合せと全出典対応を保存する。",
+            "nmod",
+            {
+                Query(
+                    ("保存",), "VERB", "nsubj", ("構築", "・", "監査", "用", "正本"), "NOUN", "dependent"
+                ),
+                Query(("保存",), "VERB", "obj", ("全", "出典", "対応"), "NOUN", "dependent"),
+            },
+        ),
+    ],
+)
+def test_modifier_edges_do_not_create_argument_usages_but_clause_arguments_remain(
+    parser, text, modifier, expected
+):
+    doc = parser._require_nlp()(text)
+    assert any(
+        token.dep_ == modifier and {token.pos_, token.head.pos_} == {"VERB", "NOUN"}
+        for token in doc
     )
-    usages = [row for row in adapt_doc(doc, text).relations if query in row.queries]
-    assert len(usages) == 1
-    assert usages[0].predicate == _endpoint(original_predicate, text)
-    assert usages[0].argument == _endpoint(original_noun, text)
-    assert usages[0].predicate.ranges[0][1] <= usages[0].argument.ranges[0][0]
+    original = doc.to_bytes()
+    queries = {query for row in adapt_doc(doc, text).relations for query in row.queries}
+    assert expected <= queries
+    assert all(query.dependency != modifier for query in queries)
+    assert doc.to_bytes() == original
 
 
 def test_identifier_root_does_not_replace_original_endpoint_type(parser):
@@ -271,9 +299,67 @@ def test_whitespace_heads_are_not_lexical_candidates(parser, monkeypatch, words,
     assert not adapt_doc(doc, doc.text).relations
 
 
-def test_noun_predicates_do_not_become_comparison_failures(parser):
+def test_nominal_subject_relation_is_read_without_promoting_unrelated_noun_pairs(parser):
+    # 名詞述語を動作と認定せず、元nsubjが示す両端と品詞をそのまま読む。
     result = parser.analyze("私のねこはとしよりです。")
-    assert not result.relations
+    assert len(result.relations) == 1
+    assert result.relations[0].queries == (
+        Query(("としより",), "NOUN", "nsubj", ("ねこ",), "NOUN", "dependent"),
+    )
+    assert not parser.analyze("処理の再利用").relations
+
+
+@pytest.mark.parametrize(
+    "text,query,predicate_surface,noun_surface",
+    [
+        (
+            "既存の読込み経路を再利用する。",
+            Query(("再利用",), "NOUN", "obj", ("読込む", "経路"), "NOUN", "dependent"),
+            "再利用",
+            "読込み経路",
+        ),
+        (
+            "既成辞書と位置対応は再利用する。",
+            Query(("再利用",), "NOUN", "nsubj", ("位置", "対応"), "NOUN", "dependent"),
+            "再利用",
+            "位置対応",
+        ),
+        (
+            "完成ファイルは再利用し、不完全な取得を完成扱いにしない。",
+            Query(("再利用",), "NOUN", "nsubj", ("完成", "ファイル"), "NOUN", "dependent"),
+            "再利用",
+            "完成ファイル",
+        ),
+        (
+            "次回から再利用します。",
+            Query(("再利用",), "NOUN", "obl", ("次回",), "NOUN", "dependent"),
+            "再利用",
+            "次回",
+        ),
+        (
+            "基本形を返す。",
+            Query(("返す",), "VERB", "obj", ("基本形",), "ADJ", "dependent"),
+            "返す",
+            "基本形",
+        ),
+    ],
+)
+def test_explicit_roles_preserve_content_raw_types_and_positions(
+    parser, text, query, predicate_surface, noun_surface
+):
+    # 再利用の既存obj/nsubj/oblと、ADJで返された基本形の目的語役割を接続する。
+    doc = parser._require_nlp()(text)
+    original = doc.to_bytes()
+    result = adapt_doc(doc, text)
+    relation = next(row for row in result.relations if query in row.queries)
+    for endpoint, surface in (
+        (relation.predicate, predicate_surface),
+        (relation.argument, noun_surface),
+    ):
+        start = text.index(surface)
+        assert endpoint.text == surface
+        assert endpoint.ranges == ((start, start + len(surface)),)
+    assert doc.to_bytes() == original
 
 
 def test_original_head_is_preserved_when_bunsetu_root_is_another_token(parser):
@@ -294,13 +380,48 @@ def test_phrase_api_default_and_non_head_behavior_are_preserved(parser):
     doc = parser._require_nlp()("家でお皿を洗います。")
     particle = next(token for token in doc if token.text == "を")
     assert ginza.bunsetu_phrase_span(particle).text == "お皿"
+    assert tuple(token.text for token in ginza.bunsetu_phrase_tokens(particle)) == ("お", "皿")
+    assert ginza.bunsetu_phrase_tokens(particle, use_token_head=True) == (particle,)
     noun = particle.head
     assert ginza.bunsetu_phrase_span(noun, use_token_head=True).text == "お皿"
 
 
-def test_phrase_contract_violation_is_a_system_error(parser, monkeypatch):
+def test_phrase_selection_excludes_gap_tokens_from_query_but_preserves_display():
+    # 選択集合の穴と識別子の投影重複を公開Docで再現し、接続を確かめる。
+    doc = Doc(
+        Vocab(),
+        words=["保持", "し", "た", "<", "your", "-", "node", "-", "name", ">", "の"],
+        spaces=[False] * 11,
+        pos=["VERB", "AUX", "AUX", "PUNCT", "PROPN", "SYM", "NOUN", "SYM", "NOUN", "SYM", "ADP"],
+        heads=[8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8],
+        deps=["acl", "aux", "aux", "punct", "compound", "compound", "compound", "dep", "ROOT", "punct", "case"],
+        lemmas=["保持", "する", "た", "<", "Your", "-", "node", "-", "name", ">", "の"],
+    )
+    doc.user_data["bunsetu_heads"] = [0, 8]
+    doc.user_data["bunsetu_bi_labels"] = ["B", *(["I"] * 7), "B", "I", "I"]
+    original = doc.to_bytes()
+    selected = ginza.bunsetu_phrase_tokens(doc[0], use_token_head=True)
+    assert selected == (doc[0], doc[4], doc[5], doc[6])
+    assert ginza.bunsetu_phrase_tokens(doc[0], (), use_token_head=True) == (doc[0],)
+    assert ginza.bunsetu_phrase_span(doc[0], use_token_head=True).text == "保持した<your-node"
+    analysis = adapt_doc(doc, doc.text)
+    assert len(analysis.relations) == 1
+    relation = analysis.relations[0]
+    # 句選択の正否を修正したことにはせず、非選択語の混入と両端の重複投影を防ぐ。
+    assert relation.queries == (
+        Query(("保持", "Your", "-", "node"), "VERB", "acl", ("name",), "NOUN", "head"),
+    )
+    assert relation.predicate.text == "保持した<your-node"
+    assert relation.predicate.ranges == ((0, 14),)
+    assert relation.argument.text == "name"
+    assert relation.argument.ranges == ((15, 19),)
+    assert doc.to_bytes() == original
+
+
+@pytest.mark.parametrize("api", ["bunsetu_phrase_span", "bunsetu_phrase_tokens"])
+def test_phrase_contract_violation_is_a_system_error(parser, monkeypatch, api):
     # 依存の契約違反を通常の照合結果へ変換しない。
-    monkeypatch.setattr(ginza, "bunsetu_phrase_span", lambda token, **kwargs: token.doc[0:1])
+    monkeypatch.setattr(ginza, api, lambda token, **kwargs: token.doc[0:1])
     with pytest.raises(ValueError, match="中心となる語が含まれていません"):
         parser.analyze("重複を畳む。")
 

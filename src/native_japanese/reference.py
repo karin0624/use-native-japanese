@@ -13,7 +13,7 @@ import numpy as np
 
 from . import membership, resources
 from .examples import Examples, canonical, group_key, query_key
-from .models import NORMALIZATION_IDENTITY, PARSER_VERSIONS, Query
+from .models import NORMALIZATION_IDENTITY, PARSER_VERSIONS, UD_POS_TAGS, Query
 from .support import Support, Vectors, direction, group_mean
 
 APPLICATION_ID = 0x4E4A5246
@@ -183,10 +183,12 @@ class Reference:
                 or type(values[1]) is not list
                 or not values[1]
                 or any(type(lemma) is not str or not lemma for lemma in values[1])
-                or values[2] not in ("VERB", "ADJ")
+                or type(values[2]) is not str
+                or values[2] not in UD_POS_TAGS
                 or type(values[3]) is not str
                 or not values[3].strip()
-                or values[4] not in ("NOUN", "PROPN")
+                or type(values[4]) is not str
+                or values[4] not in UD_POS_TAGS
                 or values[5] not in ("head", "dependent")
                 or canonical(values) != key
             ):
