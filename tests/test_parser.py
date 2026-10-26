@@ -165,6 +165,32 @@ def test_identifier_projection_preserves_external_usages_and_original_doc(parser
         }
 
 
+def test_overlapping_projection_keeps_both_original_phrases_and_queries(parser):
+    # 既存の誤解析を正用とせず、交差を作る範囲変換を適用しない契約だけ確かめる。
+    text = (
+        "続く技術文では、保持した<your-node-name>の>がKNPの格解析素性にも未escapeで出現し、"
+        "rhoknpが公開形式を読めず処理失敗になりました。"
+    )
+    doc = parser._require_nlp()(text)
+    predicate = next(token for token in doc if token.lemma_ == "保持")
+    noun = next(token for token in doc if token.text == "name")
+    original_predicate = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
+    original_noun = ginza.bunsetu_phrase_span(noun, use_token_head=True)
+    query = Query(
+        tuple(token.lemma_ for token in original_predicate if not token.is_space),
+        predicate.pos_,
+        predicate.dep_,
+        tuple(token.lemma_ for token in original_noun if not token.is_space),
+        noun.pos_,
+        "head",
+    )
+    usages = [row for row in adapt_doc(doc, text).relations if query in row.queries]
+    assert len(usages) == 1
+    assert usages[0].predicate == _endpoint(original_predicate, text)
+    assert usages[0].argument == _endpoint(original_noun, text)
+    assert usages[0].predicate.ranges[0][1] <= usages[0].argument.ranges[0][0]
+
+
 def test_identifier_root_does_not_replace_original_endpoint_type(parser):
     text = (
         "textlint 15.8.0と、公式ルールでも使われるtextlint-util-to-string 3.3.4を使い、"

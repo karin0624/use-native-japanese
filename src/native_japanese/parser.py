@@ -110,20 +110,30 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
                 for token, phrase in ((predicate, predicate_phrase), (noun, noun_phrase))
             ):
                 raise ValueError("解析された語句に、その語句の中心となる語が含まれていません。")
-            predicate_phrase = _close_phrase(predicate_phrase, identifiers)
-            noun_phrase = _close_phrase(noun_phrase, identifiers)
-            predicate_endpoint = _endpoint(predicate_phrase, text)
-            noun_endpoint = _endpoint(noun_phrase, text)
+            expanded_predicate = _close_phrase(predicate_phrase, identifiers)
+            expanded_noun = _close_phrase(noun_phrase, identifiers)
+            predicate_endpoint = _endpoint(expanded_predicate, text)
+            noun_endpoint = _endpoint(expanded_noun, text)
+            predicate_start, predicate_end = predicate_endpoint.ranges[0]
+            noun_start, noun_end = noun_endpoint.ranges[0]
+            phrase_identifiers = identifiers_by_token
+            if predicate_start < noun_end and noun_start < predicate_end:
+                # 両端を別の範囲に対応できなければ、句とlemmaを双方とも元のまま使う。
+                phrase_identifiers = {}
+                predicate_endpoint = _endpoint(predicate_phrase, text)
+                noun_endpoint = _endpoint(noun_phrase, text)
+            else:
+                predicate_phrase, noun_phrase = expanded_predicate, expanded_noun
             relations.append(
                 Relation(
                     predicate_endpoint,
                     noun_endpoint,
                     (
                         Query(
-                            _phrase_lemmas(predicate_phrase, identifiers_by_token),
+                            _phrase_lemmas(predicate_phrase, phrase_identifiers),
                             predicate.pos_,
                             dependency,
-                            _phrase_lemmas(noun_phrase, identifiers_by_token),
+                            _phrase_lemmas(noun_phrase, phrase_identifiers),
                             noun.pos_,
                             noun_role,
                         ),

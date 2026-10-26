@@ -137,7 +137,8 @@ def main() -> None:
                 "referenceTransformation": (
                     "既存Docと元Tokenの品詞・細分類・依存辺を保ち、GiNZA公開lemmaと"
                     "原文へ対応させたASCII識別子Spanから抽出した用例集合のBloom filterと、"
-                    "異なる名詞列を等重みとした300次元ベクトル群平均。原文は収録しない。"
+                    "異なる名詞列を等重みとした300次元ベクトル群平均。"
+                    "両端の範囲が重なる場合は元の句・語彙表記を保持する。原文は収録しない。"
                 ),
                 "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-span-v5",
             },
