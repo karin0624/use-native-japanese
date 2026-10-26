@@ -279,9 +279,67 @@ def test_whitespace_heads_are_not_lexical_candidates(parser, monkeypatch, words,
     assert not adapt_doc(doc, doc.text).relations
 
 
-def test_noun_predicates_do_not_become_comparison_failures(parser):
+def test_nominal_subject_relation_is_read_without_promoting_unrelated_noun_pairs(parser):
+    # 名詞述語を動作と認定せず、元nsubjが示す両端と品詞をそのまま読む。
     result = parser.analyze("私のねこはとしよりです。")
-    assert not result.relations
+    assert len(result.relations) == 1
+    assert result.relations[0].queries == (
+        Query(("としより",), "NOUN", "nsubj", ("ねこ",), "NOUN", "dependent"),
+    )
+    assert not parser.analyze("処理の再利用").relations
+
+
+@pytest.mark.parametrize(
+    "text,query,predicate_surface,noun_surface",
+    [
+        (
+            "既存の読込み経路を再利用する。",
+            Query(("再利用",), "NOUN", "obj", ("読込む", "経路"), "NOUN", "dependent"),
+            "再利用",
+            "読込み経路",
+        ),
+        (
+            "既成辞書と位置対応は再利用する。",
+            Query(("再利用",), "NOUN", "nsubj", ("位置", "対応"), "NOUN", "dependent"),
+            "再利用",
+            "位置対応",
+        ),
+        (
+            "完成ファイルは再利用し、不完全な取得を完成扱いにしない。",
+            Query(("再利用",), "NOUN", "nsubj", ("完成", "ファイル"), "NOUN", "dependent"),
+            "再利用",
+            "完成ファイル",
+        ),
+        (
+            "次回から再利用します。",
+            Query(("再利用",), "NOUN", "obl", ("次回",), "NOUN", "dependent"),
+            "再利用",
+            "次回",
+        ),
+        (
+            "基本形を返す。",
+            Query(("返す",), "VERB", "obj", ("基本形",), "ADJ", "dependent"),
+            "返す",
+            "基本形",
+        ),
+    ],
+)
+def test_explicit_roles_preserve_content_raw_types_and_positions(
+    parser, text, query, predicate_surface, noun_surface
+):
+    # 再利用の既存obj/nsubj/oblと、ADJで返された基本形の目的語役割を接続する。
+    doc = parser._require_nlp()(text)
+    original = doc.to_bytes()
+    result = adapt_doc(doc, text)
+    relation = next(row for row in result.relations if query in row.queries)
+    for endpoint, surface in (
+        (relation.predicate, predicate_surface),
+        (relation.argument, noun_surface),
+    ):
+        start = text.index(surface)
+        assert endpoint.text == surface
+        assert endpoint.ranges == ((start, start + len(surface)),)
+    assert doc.to_bytes() == original
 
 
 def test_original_head_is_preserved_when_bunsetu_root_is_another_token(parser):

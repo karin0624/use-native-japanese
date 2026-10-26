@@ -44,7 +44,7 @@ uv run --no-project --with wheel==0.48.0 --with patch-ng==1.19.1 python tools/re
 
 このwheelはpure Pythonの`py3-none-any`で、cloneのuvとnpm内のuvで同じものを使う。
 利用時にpatch適用やwheelの再buildは行わない。現adapterの抽出契約は
-`ginza-bunsetu-lemma-no-ner-identifier-tokens-v6`とし、旧参照DBとは混用しない。
+`ginza-bunsetu-lemma-no-ner-identifier-roles-v7`とし、旧参照DBとは混用しない。
 
 ## 採用前の確認
 

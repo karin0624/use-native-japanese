@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from .models import NORMALIZATION_IDENTITY, Analysis, Query
+from .models import NORMALIZATION_IDENTITY, UD_POS_TAGS, Analysis, Query
 
 SCHEMA_VERSION = 2
 QUERY_FIELDS = ("predicate", "predicate_type", "dependency", "noun", "noun_type", "noun_role")
@@ -54,8 +54,8 @@ def validate_record(record: object) -> dict:
         if not isinstance(record[key], str) or not record[key].strip():
             raise ValueError("用例のラベルと出典には空でない文字列が必要です。")
     if (
-        record["predicate_type"] not in ("VERB", "ADJ")
-        or record["noun_type"] not in ("NOUN", "PROPN")
+        record["predicate_type"] not in UD_POS_TAGS
+        or record["noun_type"] not in UD_POS_TAGS
         or record["noun_role"] not in ("head", "dependent")
     ):
         raise ValueError(

@@ -6,11 +6,14 @@ from importlib.metadata import PackageNotFoundError, version
 
 import ginza
 import spacy
+from spacy.symbols import acl, amod, iobj, nsubj, obj, obl
 from spacy.tokens import Doc, Span, Token
 
 from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation
 
 _IDENTIFIER_PATTERN = re.compile(r"(?<![A-Za-z0-9_.-])[A-Za-z_][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*")
+_ARGUMENT_RELATIONS = {nsubj, obj, iobj, obl}
+_MODIFIER_RELATIONS = {acl, amod}
 
 
 def _identifier_spans(doc: Doc) -> tuple[Span, ...]:
@@ -91,7 +94,12 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             dependent_identifier = identifiers_by_token.get(dependent.i)
             if head_identifier is not None and head_identifier is dependent_identifier:
                 continue
-            if original_head.pos_ in {"VERB", "ADJ"} and dependent.pos_ in {"NOUN", "PROPN"}:
+            # UDが明示する役割と方向を、元Tokenの品詞による選別より先に読む。
+            if dependent.dep in _ARGUMENT_RELATIONS:
+                predicate, noun, noun_role = original_head, dependent, "dependent"
+            elif dependent.dep in _MODIFIER_RELATIONS:
+                predicate, noun, noun_role = dependent, original_head, "head"
+            elif original_head.pos_ in {"VERB", "ADJ"} and dependent.pos_ in {"NOUN", "PROPN"}:
                 predicate, noun, noun_role = original_head, dependent, "dependent"
             elif original_head.pos_ in {"NOUN", "PROPN"} and dependent.pos_ in {"VERB", "ADJ"}:
                 predicate, noun, noun_role = dependent, original_head, "head"
