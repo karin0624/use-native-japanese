@@ -8,7 +8,7 @@ import json
 import shutil
 from pathlib import Path
 
-REFERENCE_SHA256 = "a6bbe5d47521ddd263712781e19f6a7a16e352c5bd6fe4ff6d448b5c7275d30a"
+REFERENCE_SHA256 = "43967eab2791d5e9e01f96bb6a8724c5afde86c84a5d317e30aede5a2421ba49"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
 
@@ -72,7 +72,7 @@ def main() -> None:
     if len(articles) != 1025 or len(seen) != 6463:
         raise ValueError("固定した1,025記事・6,463区間ではありません")
     for source, size, expected in (
-        (args.reference, 70451200, REFERENCE_SHA256),
+        (args.reference, 88936448, REFERENCE_SHA256),
         (args.model, 21944687, MODEL_SHA256),
     ):
         if source.stat().st_size != size or digest(source) != expected:
@@ -113,7 +113,7 @@ def main() -> None:
             "schemaVersion": 1,
             "reference": {
                 "file": "reference.sqlite3",
-                "bytes": 70451200,
+                "bytes": 88936448,
                 "sha256": REFERENCE_SHA256,
                 "license": "CC-BY-SA-4.0",
             },
@@ -135,14 +135,16 @@ def main() -> None:
                     "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d"
                 ),
                 "referenceTransformation": (
-                    "既存Docと元Tokenの品詞・細分類・依存辺を保ち、GiNZAの既存句探索が選んだ"
+                    "既存Docと依存辺を保ち、公開UD関係nsubj/obj/iobj/obl/acl/amodの役割・向きだけを"
+                    "読み取り、両端の元UPOSを保持する。"
+                    "GiNZAの既存句探索が選んだ"
                     "Tokenの公開lemmaを照合し、ASCII識別子は選択Tokenから原文表記へ投影する。"
                     "表示Span内の非選択Tokenを照合Token集合へ追加しない。用例集合のBloom filterと、"
                     "異なる名詞列を等重みとした300次元ベクトル群平均。"
                     "両端の表示範囲が重なる場合は識別子への投影を戻し、表示は元の句、"
                     "照合は選択Tokenのlemmaを用いる。原文は収録しない。"
                 ),
-                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-tokens-v6",
+                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-roles-v8",
             },
         },
     )
