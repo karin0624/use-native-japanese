@@ -121,7 +121,9 @@ try {
     const ginzaLock = lock.split("[[package]]").find(entry => /^\s*name = "ginza"\r?\n/m.test(entry));
     assert.ok(ginzaLock, "GiNZAの固定依存がuv.lockに必要です。");
     assert.ok(ginzaLock.includes(`source = { path = "${wheelPath}" }`));
-    const wheelHash = ginzaLock.match(/filename = "ginza-5\.3\.0\+nativejapanese\.1-py3-none-any\.whl", hash = "sha256:([a-f0-9]{64})"/);
+    const wheelEntry = ginzaLock.split(/\r?\n/).find(line =>
+        line.trimStart().startsWith(`{ filename = "${path.basename(wheelPath)}", hash = `));
+    const wheelHash = wheelEntry?.match(/hash = "sha256:([a-f0-9]{64})"/);
     assert.ok(wheelHash, "同梱GiNZA wheelのhashがuv.lockに必要です。");
     assert.equal(await sha256(path.join(installed, "backend", wheelPath)), wheelHash[1]);
     const assets = path.join(installed, "assets");
