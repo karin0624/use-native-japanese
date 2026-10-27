@@ -7,16 +7,17 @@
 | [textlintルール](../../packages/textlint-rule-preset-native-japanese/src/index.js) | 本文抽出、原文への位置変換、指摘表示 |
 | [worker](../../packages/textlint-rule-preset-native-japanese/src/worker.js) | JSONL通信、要求と応答の対応、プロセス共有 |
 | [runtime](../../packages/textlint-rule-preset-native-japanese/src/runtime.js) | uvによるPython環境の準備と起動 |
-| [Parser](../../src/native_japanese/parser.py) | GiNZAの解析結果から比較語彙・関係・位置を取得 |
+| [Parser](../../src/native_japanese/parser.py) | 原文とGiNZAの完全Docを保持 |
+| [比較view](../../src/native_japanese/comparison.py) | 元Tokenと辺を参照し、述語構成・関係・名詞特徴の範囲を同定 |
 | [Inspector](../../src/native_japanese/service.py) | 参照照合と名詞一般化による支持判定 |
-| [Examples](../../src/native_japanese/examples.py) | 出典付き用例の取込と重複排除 |
-| [Reference](../../src/native_japanese/reference.py) | Bloom集合と名詞群平均の構築・読込 |
+| [Examples](../../src/native_japanese/examples.py) | 原文・完全Doc・全出典を保存し、再構築可能な索引を作成 |
+| [Reference](../../src/native_japanese/reference.py) | 厳密な述語・関係索引、Bloom集合、名詞群平均の構築・読込 |
 
 ## データの流れ
 
-検査は、本文抽出 → GiNZA解析 → 同じ出現の語・関係を取得 → 配布参照へ照合 → 原文位置付き指摘、の順です。[比較条件](usage.md)は入力と参照で共通です。
+検査は、本文抽出 → GiNZA解析 → 述語構成と元評価辺のviewを作成 → 配布参照へ照合 → 原文位置付き指摘、の順です。[比較条件](usage.md)は入力と参照で共通です。
 
-参照の構築は、出典本文 → `extract` → JSONL → `import` → 正本SQLite → `prepare` → 配布SQLite、の順です。正本は用法と出典対応を保持し、検査端末にはBloom集合と群平均を配ります。
+参照の構築は、出典本文 → `extract` → JSONL → `import` → 正本SQLite → `prepare` → 配布SQLite、の順です。正本は原文・完全Doc・全出典対応を保持し、検査端末には派生cacheとして厳密索引・Bloom集合・群平均を配ります。
 
 ## 実行・配布
 
@@ -26,7 +27,7 @@
 
 Pythonの取得と依存同期は既存uvへ委ね、初回だけ利用者cacheへ準備します。用例追加後は正本から配布参照を全量再構築し、検査器を起動し直します。
 
-保存量は異なる用法数N、群数G、次元d、文字列量L、Bloom誤認率pに対し`O(N log(1/p) + Gd + L)`です。同じ用法の出典だけを増やしても配布集合と群平均は増えません。正本の出典対応と、全量再構築の費用は別に増えます。
+保存量は異なる用法数N、群数G、次元d、文字列量L、Bloom誤認率pに対し`O(N log(1/p) + Gd + L)`です。厳密な述語索引の文字列量もLに含めます。同じ用法の出典だけを増やしても配布集合と群平均は増えません。正本の原解析・出典対応と、全量再構築の費用は別に増えます。
 
 ## 採用理由
 

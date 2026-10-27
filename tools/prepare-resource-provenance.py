@@ -10,8 +10,8 @@ from pathlib import Path
 
 from native_japanese.models import NORMALIZATION_IDENTITY
 
-REFERENCE_BYTES = 89964544
-REFERENCE_SHA256 = "94d2a3230d686a4f890d4d0c8935fdc897f2fda62dd110aaeea1fa41b84cf2ce"
+REFERENCE_BYTES = 135823360
+REFERENCE_SHA256 = "aa24ab9e5fded90f219f539447dca0114e1a427e498a091bb5b5ecf7d9129d88"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
 
@@ -34,10 +34,9 @@ def main() -> None:
     parser.add_argument("--passages", required=True, action="append", type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
-    if len(args.passages) != 2 or {digest(path) for path in args.passages} != {
-        "cb48121ac61267d6272e30329b3cdaf7b0a99f5d3e9e5421104a2d3aaef987dc",
-        "0bb0ef39ce173fd9f40a3b99f92cda1cba52533448cbd5fc137a235f9f990272",
-    }:
+    if len(args.passages) != 1 or digest(args.passages[0]) != (
+        "ed90c535785288b76e443a9df835891b8671993a2e855b4ee0955a852a4f421f"
+    ):
         raise ValueError("固定した参照本文ファイルのhashと一致しません")
     articles: dict[str, dict] = {}
     seen: set[str] = set()
@@ -140,14 +139,15 @@ def main() -> None:
                 "referenceTransformation": (
                     "既存の英字開始識別子と連続英数字wordの範囲を、複数tokenに厳密一致する"
                     "場合だけ公開retokenizerで解析前に一tokenへ結合し、単一tokenの公開lemmaは"
-                    "保持する。同じDocを解析・照合する。公開UD関係nsubj/obj/iobj/obl/acl/amodの"
-                    "元辺・役割・向き・両端の元UPOSを保持する。各元anchorの所属文節から"
-                    "公開FUNC/SYN_HEADまたは依存関係aux/case/copのtokenと、その文節内の"
-                    "fixed直接子、is_punct/is_spaceを除き、"
-                    "NO_HEADを含む残りの全Tokenの公開lemmaを原文順に照合する。"
-                    "同文節の修飾も比較条件に残る。用例集合のBloom filterと、"
-                    "異なる名詞列を等重みとした300次元ベクトル群平均。原述語は一般化しない。"
-                    "原文は収録しない。"
+                    "保持する。原文全文・全Docと名詞側の元subtree graphは配布しない構築用正本に"
+                    "保持する。schema 3の配布DBはそこから生成した派生キャッシュ。述語構成は"
+                    "元依存関係aux/cop/mark/fixed/compound/nummodと同文節VERB/ADJ/AUX間の"
+                    "acl/advcl/amodを辿り、lemma・XPOS・Inflection・内部依存方向・相対順・"
+                    "rootを静的な完全一致キーにする。関係は述語接続位置・元辺・向きで"
+                    "完全一致群に分け、P0を含む実在述語の完全一致表をBloom filterより先に確認する。"
+                    "名詞特徴だけは評価辺の名詞側にある句読点・空白以外のlemmaを既存fastTextで"
+                    "合成し、異なる特徴列の300次元ベクトルを等重みで平均する。逆向きacl/amodでは"
+                    "評価する述語の枝を特徴に含めない。構成要素の削除・再結合・述語類似は行わない。"
                 ),
                 "normalizationIdentity": NORMALIZATION_IDENTITY,
             },

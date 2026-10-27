@@ -2,22 +2,37 @@
 
 import io
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import pytest
+from test_examples import make_analysis
 from test_reference import QUERY as REFERENCE_QUERY
 from test_reference import setup_reference as setup_reference
 
-from native_japanese import Analysis, Endpoint, Query, Relation, reference
+from native_japanese import Endpoint, Query, Relation, reference
 from native_japanese import __main__ as cli
+from native_japanese.models import PredicateGraph, PredicateNode
 from native_japanese.service import Inspector
 from native_japanese.support import Support
 
-QUERY = Query(("畳む",), "VERB", "obj", ("重複",), "NOUN", "dependent")
+
+@dataclass(frozen=True)
+class StubAnalysis:
+    text: str
+    relations: tuple[Relation, ...]
+
+
+QUERY = Query(
+    PredicateGraph(0, (PredicateNode("畳む", "動詞-一般", (), None, None),)),
+    0,
+    "obj",
+    ("重複",),
+    "dependent",
+)
 ALTERNATE = replace(QUERY, noun=("別表記",))
 TEXT = "😀重複を間に挟んで畳む。"
 RELATION = Relation(Endpoint("畳む", ((9, 11),)), Endpoint("重複", ((1, 3),)), (QUERY,))
-ANALYSIS = Analysis(TEXT, (RELATION,))
+ANALYSIS = StubAnalysis(TEXT, (RELATION,))
 
 
 def inspector(monkeypatch, *, assessments=None, analysis=ANALYSIS):
@@ -31,7 +46,7 @@ def inspector(monkeypatch, *, assessments=None, analysis=ANALYSIS):
         def analyze(self, text):
             if text == "解析失敗":
                 raise RuntimeError("解析に失敗しました。")
-            return replace(analysis, text=text) if text.strip() else Analysis(text, ())
+            return replace(analysis, text=text) if text.strip() else StubAnalysis(text, ())
 
         def analyze_many(self, texts):
             texts = tuple(texts)
@@ -288,23 +303,23 @@ def test_cli_extract_import_preserves_source_and_new_analysis_contract(
             instances.append(self)
 
         def analyze(self, text):
-            assert text == TEXT
-            return ANALYSIS
+            assert text == make_analysis(QUERY).text
+            return make_analysis(QUERY)
 
         def close(self):
             self.closed = True
 
     monkeypatch.setattr(parser_module, "Parser", Parser)
-    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(TEXT))
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(make_analysis(QUERY).text))
     assert (
         cli.main(["extract", "--source-id", "出典", "--source-url", "https://example.test/source"])
         == 0
     )
     extracted = capsys.readouterr().out
     record = json.loads(extracted)
-    assert record["predicate"] == ["畳む"]
-    assert record["noun"] == ["重複"]
-    assert record["dependency"] == "obj"
+    assert record["text"] == make_analysis(QUERY).text
+    assert record["schema_version"] == 3
+    assert record["doc_base64"]
     assert record["source_id"] == "出典"
     assert record["source_url"] == "https://example.test/source"
     assert instances[0].closed
@@ -339,3 +354,30 @@ def test_reference_is_closed_when_parser_initialization_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="モデルがありません"):
         Inspector("reference", "assets")
     assert closed == [True]
+
+
+@pytest.mark.parametrize("standard_input", [False, True])
+def test_cli_extract_preserves_crlf_and_full_document(
+    standard_input, tmp_path, monkeypatch, capsys
+):
+    from native_japanese.examples import analysis_from_record
+    from native_japanese.parser import Parser
+
+    text = "電気を消す。\r\n本を読む。\r\n"
+    parser = Parser()
+    monkeypatch.setattr("native_japanese.parser.Parser", lambda: parser)
+    args = ["extract", "--source-id", "出典", "--source-url", "url"]
+    if standard_input:
+        # TextIOWrapperの既定newline=Noneでも、原bytesを読む。
+        monkeypatch.setattr(
+            cli.sys, "stdin", io.TextIOWrapper(io.BytesIO(text.encode("utf-8")), encoding="utf-8")
+        )
+    else:
+        path = tmp_path / "原文.txt"
+        path.write_bytes(text.encode("utf-8"))
+        args.append(str(path))
+    assert cli.main(args) == 0
+    row = json.loads(capsys.readouterr().out)
+    analysis = analysis_from_record(row)
+    assert analysis.text == analysis.restore_doc().text == text
+    assert len(analysis.relations) == 2

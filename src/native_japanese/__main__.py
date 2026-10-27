@@ -45,6 +45,13 @@ def emit(value):
     print(json.dumps(value, ensure_ascii=True, allow_nan=False), flush=True)
 
 
+def read_text(source):
+    """標準入力の改行変換も避け、UTF-8の原文をそのまま読む。"""
+    if source is sys.stdin and hasattr(source, "buffer"):
+        return source.buffer.read().decode("utf-8")
+    return source.read()
+
+
 def serve(inspector):
     """要求ごとの失敗を返し、後続のJSONL要求を引き続き処理する。"""
     for line in sys.stdin:
@@ -106,7 +113,7 @@ def main(argv=None) -> int:
                 source = (
                     sys.stdin
                     if options.input == "-"
-                    else stack.enter_context(open(options.input, encoding="utf-8"))
+                    else stack.enter_context(open(options.input, encoding="utf-8", newline=""))
                 )
             if options.command == "import":
                 examples = stack.enter_context(Examples(options.examples, writable=True))
@@ -127,7 +134,7 @@ def main(argv=None) -> int:
                 with redirect_stdout(sys.stderr):
                     parser = Parser()
                     stack.callback(parser.close)
-                    analysis = parser.analyze(source.read())
+                    analysis = parser.analyze(read_text(source))
                 for record in extract_records(analysis, options.source_id, options.source_url):
                     emit(record)
             else:
@@ -145,7 +152,7 @@ def main(argv=None) -> int:
                     serve(inspector)
                 else:
                     with redirect_stdout(sys.stderr):
-                        result = result_json(inspector.lint(source.read()))
+                        result = result_json(inspector.lint(read_text(source)))
                     emit(result)
         return 0
     except Exception as error:

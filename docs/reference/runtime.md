@@ -17,9 +17,11 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
 
 | メソッド | 戻り値 |
 | --- | --- |
-| `analyze(text: str)` | 原文と解析関係を持つ`Analysis` |
+| `analyze(text: str)` | 原文と完全Docのsnapshotを持つ`Analysis` |
 | `lint(text: str)` | `analysis`・`relations`・`diagnostics`を持つ`LintResult` |
 | `lint_many(texts: Iterable[str])` | 入力順の`tuple[LintResult, ...]` |
+
+`Analysis.restore_doc()`は保存したDocの独立したコピーを返す。`predicates`は元述語役割の証拠付き構成、`relations`は評価辺・端点・照会・比較viewを返す。viewのToken IDと依存辺は同じsnapshotを参照する。
 
 関係の評価には`status`（`indexed`・`supported`・`review`）、`score: float \| None`、照会ごとの支持情報を含む。指摘は`range`と`message`を持ち、全位置は0始まり・終端を含まないPython文字添字。
 
@@ -35,7 +37,7 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
 | `lint [input]` | `--reference`・`--assets-dir` | 検査結果をJSONで返す |
 | `serve` | `--reference`・`--assets-dir` | 下記JSONL通信を続ける |
 
-`input`はUTF-8ファイル。省略時と`-`は標準入力。`lint`・`serve`だけが`--threshold`を受け付ける。ファイル読込ではCRLFがLFへ変換されるため、改行を含む元位置が必要ならPython APIかJSONLへ原文を渡す。
+`input`はUTF-8ファイル。省略時と`-`は標準入力。`lint`・`serve`だけが`--threshold`を受け付ける。`lint`・`extract`はファイル・標準入力のCRLFも原文のまま保持する。
 
 用例の追加は、出典本文を抽出・確認してから取り込む。パスとURLは自分の資源へ置き換える。
 
@@ -45,7 +47,7 @@ native-japanese import --examples /path/to/archive.sqlite3 /path/to/examples.jso
 native-japanese prepare --examples /path/to/archive.sqlite3 --reference /path/to/reference.sqlite3 --assets-dir /path/to/assets
 ```
 
-`import`は不正行があれば全件を取り消し、同じ記録を重複登録しない。返す件数は`records`・`usages_added`・`observations_added`。取込後は`prepare`で参照を更新し、検査器を起動し直す。正本DBは検査時には不要。
+`import`は不正行があれば全件を取り消し、同じ記録を重複登録しない。返す件数は`records`・`documents_added`・`predicates_added`・`usages_added`・`observations_added`。取込後は`prepare`で参照を更新し、検査器を起動し直す。正本DBは検査時には不要。
 
 ## JSONL通信
 
@@ -86,16 +88,19 @@ CLIの終了値は正常処理0、処理失敗1、引数の誤り2。`lint`は�
 
 ## 用例JSONL
 
-一行は次の11キーだけを持つJSONオブジェクト。
+一行は次の8キーだけを持つJSONオブジェクトで、文書ごとに原解析と出典を交換する。
 
 | キー | 型・値 |
 | --- | --- |
-| `schema_version` | 整数`2` |
-| `normalization_identity` | `"ginza-bunsetu-functional-projection-v10"` |
-| `predicate`・`noun` | 空でないlemma文字列の配列。各配列も空にしない |
-| `predicate_type`・`noun_type` | 元Tokenの標準UD品詞 |
-| `dependency` | 空白だけではない元依存ラベル |
-| `noun_role` | `"head"`または`"dependent"` |
+| `schema_version` | 整数`3` |
+| `normalization_identity` | `"ginza-original-graph-occurrence-v11"` |
+| `parser_versions` | [固定解析版](../../src/native_japanese/models.py)と一致するpackage名・版のオブジェクト |
+| `text` | 空文字列を含む原文全文 |
+| `doc_base64` | 原文と一致する公開`Doc.to_bytes()`全体のbase64文字列 |
 | `source_id`・`observation_id`・`source_url` | 空白だけではない出典ID・出現ID・所在 |
 
-`extract`は本文ハッシュと端点から出現IDを作る。JSONLと正本には本文全文を保存せず、用法と出典対応を保持する。入力と参照には同じ[解析契約](../design/usage.md)を適用し、異なる契約の資源は混用しない。
+`extract`は原文のSHA-256を出現IDに使う。正本はsnapshotのSHA-256を文書IDにして、同一snapshotの全出典を保持する。NN tensorのbatch演算差でsnapshotが異なる場合でも、比較viewから同じ用法を重複排除する。tensorのbyte一致を構文の同一性とはしない。
+
+`import`は原文・完全Doc・出典を保存し、[静的view](../design/usage.md)から索引を作る。正本の`iter_records()`で全文と出典をJSONLへ戻せる。配布DBは厳密な述語・関係群の存在索引、Bloom集合、名詞特徴の群平均だけを持つ派生cacheであり、本文・全Doc・全出典の正本には使わない。
+
+旧schemaや異なる解析契約は拒否する。v10の投影済み用例からは原解析を復元できないため、原文を再抽出して正本と配布参照を作り直す。
