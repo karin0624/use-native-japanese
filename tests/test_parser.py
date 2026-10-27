@@ -2,11 +2,18 @@
 
 import ginza
 import pytest
+import spacy
 from spacy.tokens import Doc
 from spacy.vocab import Vocab
 
 from native_japanese.models import PARSER_VERSIONS, Query
-from native_japanese.parser import Parser, _endpoint, adapt_doc
+from native_japanese.parser import (
+    Parser,
+    _comparison_tokens,
+    _endpoint,
+    _merge_identifiers,
+    adapt_doc,
+)
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +81,7 @@ def test_literal_text_and_batch_results_preserve_original_positions(parser):
     for text, result in zip(texts, batched, strict=True):
         for relation in result.relations:
             for endpoint in (relation.predicate, relation.argument):
-                assert "".join(text[start:end] for start, end in endpoint.ranges) == endpoint.text
+                assert text[endpoint.ranges[0][0] : endpoint.ranges[-1][1]] == endpoint.text
     expected_noun = texts[0].rindex("重複")
     assert any(
         row.argument.text.endswith("重複")
@@ -84,85 +91,108 @@ def test_literal_text_and_batch_results_preserve_original_positions(parser):
     )
 
 
-def test_identifier_projection_preserves_external_usages_and_original_doc(parser):
-    name = "textlint-rule-preset-native-japanese-0.1.0.tgz"
-    cases = [
-        (
-            "npm registryには未公開です。配布された"
-            f"{name}を利用先のプロジェクトに置き、そのルートで導入・実行します。",
-            name,
-            name,
-            (name,),
-            {("配布", "acl", "head"), ("置く", "obj", "dependent")},
-        ),
-        (
-            "Node.js 20.18以上を使います。他のプロジェクトでルールを利用する場合と、"
-            "このリポジトリをcloneして開発・検証する場合で、準備が異なります。",
-            "Node.js",
-            "Node.js 20.18以上",
-            ("Node.js", "20.18", "以上"),
-            {("使う", "obj", "dependent")},
-        ),
-        (
-            "bunsetu_phrase_spanを呼び出します。",
-            "bunsetu_phrase_span",
-            "bunsetu_phrase_span",
-            ("bunsetu_phrase_span",),
-            {("呼び出す", "obj", "dependent")},
-        ),
-        (
-            "sample_module-v2.3.zipを配置します。",
-            "sample_module-v2.3.zip",
-            "sample_module-v2.3.zip",
-            ("sample_module-v2.3.zip",),
-            {("配置", "obj", "dependent")},
-        ),
-        (
-            "以下を順に実行します。cd use-native-japaneseで入るリポジトリのルート"
-            "（package.jsonと.textlintrc.cjsのあるディレクトリ）で、"
-            "Git LFSの資源実体と開発依存を準備します。",
-            "use-native-japanese",
-            "cd use-native-japanese",
-            ("CD", "use-native-japanese"),
-            {("入る", "obl", "dependent")},
-        ),
-        (
-            "同じrecordの時間内訳では、用例token化は0.187秒、"
-            "読取り・decode・項目分割は1.251秒だった。token化が主要因とは断定しない。"
-            "残り全文をtokenごとにcopyする実装は、標準re.finditerで元文字列の位置を進める処理へ"
-            "簡素化できる。区切り・空token・末尾＊を含む出力同一を確認した範囲だけ変更し、"
-            "別の索引・採点・日本語規則は追加しない。根拠は同scratchのminimal-connection-proposal.md。",
-            "re.finditer",
-            "標準re.finditer",
-            ("標準", "re.finditer"),
-            {("進める", "obl", "dependent")},
-        ),
+@pytest.mark.parametrize(
+    "text,identifier,predicate,dependency",
+    [
+        ("sample12moduleは値を返す。", "sample12module", "返す", "nsubj"),
+        ("3sample12moduleは値を返す。", "3sample12module", "返す", "nsubj"),
+        ("sample_module-v2.3.zipを配置します。", "sample_module-v2.3.zip", "配置", "obj"),
+        ("Node.jsを使う。", "Node.js", "使う", "obj"),
+    ],
+)
+def test_identifiers_are_single_tokens_before_parsing_and_keep_external_edges(
+    parser, text, identifier, predicate, dependency
+):
+    pipeline = parser._require_nlp()
+    doc = pipeline.make_doc(text)
+    original_doc = doc
+    start = text.index(identifier)
+    end = start + len(identifier)
+    original_span = doc.char_span(start, end, alignment_mode="strict")
+    assert original_span is not None and len(original_span) > 1
+    for name, component in pipeline.pipeline:
+        if name in {"tok2vec", "parser", "morphologizer"}:
+            span = doc.char_span(start, end, alignment_mode="strict")
+            assert span is not None and len(span) == 1
+            assert span[0].text == span[0].lemma_ == identifier
+            assert "sub_tokens" not in doc.user_data
+        doc = component(doc)
+        assert doc is original_doc
+        assert doc.text == text
+    token = doc.char_span(start, end, alignment_mode="strict")[0]
+    assert token.text == token.lemma_ == identifier
+    assert token.dep_ == dependency
+    assert token.head.lemma_ == predicate
+    original = doc.to_bytes()
+    analysis = adapt_doc(doc, text)
+    assert doc.to_bytes() == original
+    assert list(parser.analyze_many([text])) == [analysis] == [parser.analyze(text)]
+    matching = [row for row in analysis.relations if row.argument.text == identifier]
+    assert len(matching) == 1
+    assert matching[0].argument.ranges == ((start, end),)
+    assert matching[0].queries == (
+        Query((predicate,), token.head.pos_, dependency, (identifier,), token.pos_, "dependent"),
+    )
+    for row in analysis.relations:
+        for endpoint in (row.predicate, row.argument):
+            assert text[endpoint.ranges[0][0] : endpoint.ranges[-1][1]] == endpoint.text
+
+
+def test_identifier_merge_preserves_partial_tokens_single_lemmas_and_numeric_punctuation():
+    # 部分token・一tokenのlemma・数字開始の記号境界は変更しない。
+    words = [
+        "alpha_beta日本語",
+        "npm",
+        "20.18",
+        "2023",
+        "-",
+        "11",
+        "-",
+        "25",
+        "1",
+        "-",
+        "2",
+        "3",
+        "alpha",
+        "42",
+        "beta",
+        "alpha",
+        "42",
+        "beta",
     ]
-    batched = list(parser.analyze_many(text for text, *_ in cases))
-    for (text, identifier, phrase, noun_lemmas, expected), analysis in zip(
-        cases, batched, strict=True
-    ):
-        doc = parser._require_nlp()(text)
-        original = doc.to_bytes()
-        assert adapt_doc(doc, text) == analysis
-        assert doc.to_bytes() == original
-        name_start = text.index(identifier)
-        name_end = name_start + len(identifier)
-        related = []
-        for row in analysis.relations:
-            assert all(
-                end <= name_start or name_end <= start for start, end in row.predicate.ranges
-            )
-            if any(start < name_end and name_start < end for start, end in row.argument.ranges):
-                assert row.argument.text == phrase
-                phrase_start = text.index(phrase)
-                assert row.argument.ranges == ((phrase_start, phrase_start + len(phrase)),)
-                related.extend(row.queries)
-        assert len(related) == len(expected)
-        assert set(related) == {
-            Query((predicate,), "VERB", dependency, noun_lemmas, "NOUN", role)
-            for predicate, dependency, role in expected
-        }
+    doc = Doc(
+        Vocab(),
+        words=words,
+        spaces=[index in {0, 1, 2, 7, 10, 14} for index in range(len(words))],
+        lemmas=["NPM" if word == "npm" else word for word in words],
+    )
+    original = doc.text
+    assert _merge_identifiers(doc) is doc
+    assert [token.text for token in doc] == words[:11] + ["3alpha42beta", "alpha42beta"]
+    assert doc[1].lemma_ == "NPM"
+    assert [token.lemma_ for token in doc[-2:]] == ["3alpha42beta", "alpha42beta"]
+    assert doc.text == original
+
+
+def test_identifier_pipeline_does_not_change_ordinary_japanese(parser):
+    baseline = spacy.load("ja_ginza", exclude=["ner"])
+    texts = [
+        "家でお皿を洗います。",
+        "本を読む人",
+        "重複を畳んでいる。",
+        "npmでgit cloneを実行する。",
+    ]
+    for text in texts:
+        original = baseline(text)
+        actual = parser._require_nlp()(text)
+        assert [
+            (token.text, token.idx, token.lemma_, token.pos_, token.tag_, token.dep_, token.head.i)
+            for token in actual
+        ] == [
+            (token.text, token.idx, token.lemma_, token.pos_, token.tag_, token.dep_, token.head.i)
+            for token in original
+        ]
+        assert adapt_doc(actual, text) == adapt_doc(original, text)
 
 
 def test_clause_modifier_is_not_reinterpreted_as_a_nominal_argument(parser):
@@ -197,7 +227,7 @@ def test_clause_modifier_is_not_reinterpreted_as_a_nominal_argument(parser):
             "nmod",
             {
                 Query(
-                    ("保存",), "VERB", "nsubj", ("構築", "・", "監査", "用", "正本"), "NOUN", "dependent"
+                    ("保存",), "VERB", "nsubj", ("構築", "監査", "用", "正本"), "NOUN", "dependent"
                 ),
                 Query(("保存",), "VERB", "obj", ("全", "出典", "対応"), "NOUN", "dependent"),
             },
@@ -219,37 +249,16 @@ def test_modifier_edges_do_not_create_argument_usages_but_clause_arguments_remai
     assert doc.to_bytes() == original
 
 
-def test_identifier_root_does_not_replace_original_endpoint_type(parser):
-    text = (
-        "textlint 15.8.0と、公式ルールでも使われるtextlint-util-to-string 3.3.4を使い、"
-        "抽出・位置変換を既存APIへ委ねる。StringSourceは最終リリースが2023-11-25で、"
-        "readonly対応PR #25は未merge。保守が活発とはみなさない。"
-    )
-    result = parser.analyze(text)
-    query = Query(("使う",), "VERB", "acl", ("textlint-util-to-string",), "NOUN", "head")
-    usages = [row for row in result.relations if query in row.queries]
-    assert len(usages) == 1
-    start = text.index("textlint-util-to-string")
-    assert usages[0].argument.text == "textlint-util-to-string"
-    assert usages[0].argument.ranges == ((start, start + len("textlint-util-to-string")),)
-
-
-def test_projected_relation_is_unique_at_each_distinct_occurrence(parser):
-    # 日本語Wikipedia「T-34 (航空機)」著者、2019-02-01版、CC BY-SA 3.0。
-    # https://ja.wikipedia.org/?curid=160755 （自然参照160755#5から一文を引用）
-    sentence = (
-        "ターボプロップエンジンへの換装により性能が向上したほか、兵器訓練型のT-34C-1では"
-        "主翼下に4箇所のハードポイントが設けられ、COIN機としての運用も可能だった。"
-    )
-    result = parser.analyze(sentence + sentence)
-    query = Query(("設ける",), "VERB", "obl", ("T-34C-1",), "NOUN", "dependent")
-    usages = [row for row in result.relations if query in row.queries]
+def test_identifier_occurrences_keep_separate_original_positions(parser):
+    sentence = "sample_moduleを読む。"
+    text = sentence + sentence
+    analysis = parser.analyze(text)
+    usages = [row for row in analysis.relations if row.argument.text == "sample_module"]
     assert len(usages) == 2
-    start = sentence.index("T-34C-1")
-    predicate_start = sentence.index("設け")
-    for row, offset in zip(usages, (0, len(sentence)), strict=True):
-        assert row.argument.ranges == ((offset + start, offset + start + len("T-34C-1")),)
-        assert row.predicate.ranges == ((offset + predicate_start, offset + predicate_start + 2),)
+    assert [row.argument.ranges for row in usages] == [
+        ((0, len("sample_module")),),
+        ((len(sentence), len(sentence) + len("sample_module")),),
+    ]
 
 
 def test_whitespace_is_not_a_lemma_and_internal_surface_spaces_are_preserved(parser):
@@ -267,7 +276,7 @@ def test_whitespace_is_not_a_lemma_and_internal_surface_spaces_are_preserved(par
         words=["\n", "New", "York", "\n"],
         spaces=[False, True, False, False],
     )
-    endpoint = _endpoint(doc[:], doc.text)
+    endpoint = _endpoint(tuple(doc[1:3]), doc.text)
     assert endpoint.text == "New York"
     assert endpoint.ranges == ((1, 9),)
 
@@ -358,75 +367,144 @@ def test_explicit_roles_preserve_content_raw_types_and_positions(
     ):
         start = text.index(surface)
         assert endpoint.text == surface
-        assert endpoint.ranges == ((start, start + len(surface)),)
+        assert endpoint.ranges[0][0] == start
+        assert endpoint.ranges[-1][1] == start + len(surface)
+        assert "".join(text[a:b] for a, b in endpoint.ranges) == surface
     assert doc.to_bytes() == original
 
 
-def test_original_head_is_preserved_when_bunsetu_root_is_another_token(parser):
-    # 原因再現のため一文だけ引用。文節spanのrootは別の「後漢」になる。
-    # 日本語Wikipedia「後漢書」著者、2019-02-01版、CC BY-SA 3.0。
-    # https://ja.wikipedia.org/?curid=160967 （自然参照160967#0）
-    text = "『後漢書』（ごかんじょ）は、中国後漢朝について書かれた歴史書。"
-    result = parser.analyze(text)
-    expected = Query(("書く",), "VERB", "obl", ("中国", "後漢", "朝"), "NOUN", "dependent")
-    relation = next(row for row in result.relations if expected in row.queries)
-    assert relation.argument.text == "中国後漢朝"
-    assert relation.argument.ranges == ((14, 19),)
-    assert relation.predicate.text == "書か"
-    assert relation.predicate.ranges == ((23, 25),)
+@pytest.mark.parametrize(
+    "plain,inflected,predicate,noun,predicate_ranges",
+    [
+        ("値を対応付ける。", "値を対応付けた。", ("対応", "付ける"), ("値",), ((2, 6),)),
+        ("違いを同一視する。", "違いを同一視しない。", ("同一", "視"), ("違い",), ((3, 6),)),
+        ("記録をつける。", "記録をつけています。", ("つける",), ("記録",), ((3, 5),)),
+    ],
+)
+def test_composition_is_kept_and_functional_inflection_is_shared(
+    parser, plain, inflected, predicate, noun, predicate_ranges
+):
+    expected = Query(predicate, "VERB", "obj", noun, "NOUN", "dependent")
+    for text in (plain, inflected):
+        doc = parser._require_nlp()(text)
+        anchor = next(token for token in doc if token.dep_ == "obj")
+        assert anchor.lemma_ == noun[0]
+        assert anchor.head.lemma_ in predicate
+        original = doc.to_bytes()
+        analysis = adapt_doc(doc, text)
+        assert len(analysis.relations) == 1
+        assert analysis.relations[0].queries == (expected,)
+        assert doc.to_bytes() == original
+        if text == inflected:
+            assert analysis.relations[0].predicate.ranges == predicate_ranges
+    if noun == ("記録",):
+        # 公開fixedが相成分を機能語へ結び、原述語に混ぜない。
+        doc = parser._require_nlp()(inflected)
+        aspect = next(token for token in doc if token.lemma_ == "いる")
+        assert aspect.dep_ == "fixed"
+        assert ginza.bunsetu_position_type(aspect.head) == "SYN_HEAD"
 
 
-def test_phrase_api_default_and_non_head_behavior_are_preserved(parser):
-    doc = parser._require_nlp()("家でお皿を洗います。")
-    particle = next(token for token in doc if token.text == "を")
-    assert ginza.bunsetu_phrase_span(particle).text == "お皿"
-    assert tuple(token.text for token in ginza.bunsetu_phrase_tokens(particle)) == ("お", "皿")
-    assert ginza.bunsetu_phrase_tokens(particle, use_token_head=True) == (particle,)
-    noun = particle.head
-    assert ginza.bunsetu_phrase_span(noun, use_token_head=True).text == "お皿"
+def test_explicit_subject_and_object_keep_original_anchors(parser):
+    text = "彼が本を読む。"
+    doc = parser._require_nlp()(text)
+    subject, noun = doc[0], doc[2]
+    assert subject.dep_ == "nsubj" and noun.dep_ == "obj"
+    assert subject.head == noun.head == doc[4]
+    assert {query for row in adapt_doc(doc, text).relations for query in row.queries} == {
+        Query(("読む",), "VERB", "nsubj", ("彼",), "PRON", "dependent"),
+        Query(("読む",), "VERB", "obj", ("本",), "NOUN", "dependent"),
+    }
 
 
-def test_phrase_selection_excludes_gap_tokens_from_query_but_preserves_display():
-    # 選択集合の穴と識別子の投影重複を公開Docで再現し、接続を確かめる。
+def _classified_doc():
+    # 分類を入力として扱う形式変換の対照。日本語文法のgold例は作らない。
     doc = Doc(
         Vocab(),
-        words=["保持", "し", "た", "<", "your", "-", "node", "-", "name", ">", "の"],
-        spaces=[False] * 11,
-        pos=["VERB", "AUX", "AUX", "PUNCT", "PROPN", "SYM", "NOUN", "SYM", "NOUN", "SYM", "ADP"],
-        heads=[8, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8],
-        deps=["acl", "aux", "aux", "punct", "compound", "compound", "compound", "dep", "ROOT", "punct", "case"],
-        lemmas=["保持", "する", "た", "<", "Your", "-", "node", "-", "name", ">", "の"],
+        words=["前語", "で", "いる", "さ", "を", "読む"],
+        spaces=[False] * 6,
+        pos=["NOUN", "SCONJ", "VERB", "PART", "ADP", "VERB"],
+        heads=[5, 0, 1, 0, 0, 5],
+        deps=["obj", "case", "fixed", "mark", "case", "ROOT"],
+        lemmas=["前語", "で", "いる", "さ", "を", "読む"],
     )
-    doc.user_data["bunsetu_heads"] = [0, 8]
-    doc.user_data["bunsetu_bi_labels"] = ["B", *(["I"] * 7), "B", "I", "I"]
+    doc.user_data["bunsetu_heads"] = [0, 5]
+    doc.user_data["bunsetu_bi_labels"] = ["B", "I", "I", "I", "I", "B"]
+    doc.user_data["bunsetu_position_types"] = [
+        "NO_HEAD",
+        "CONT",
+        "CONT",
+        "CONT",
+        "FUNC",
+        "ROOT",
+    ]
+    return doc
+
+
+@pytest.mark.parametrize("functional_dependency", ["aux", "case", "cop"])
+def test_functional_edges_and_fixed_are_removed_without_losing_content_or_mark(
+    functional_dependency,
+):
+    doc = _classified_doc()
+    doc[1].dep_ = functional_dependency
     original = doc.to_bytes()
-    selected = ginza.bunsetu_phrase_tokens(doc[0], use_token_head=True)
-    assert selected == (doc[0], doc[4], doc[5], doc[6])
-    assert ginza.bunsetu_phrase_tokens(doc[0], (), use_token_head=True) == (doc[0],)
-    assert ginza.bunsetu_phrase_span(doc[0], use_token_head=True).text == "保持した<your-node"
     analysis = adapt_doc(doc, doc.text)
     assert len(analysis.relations) == 1
     relation = analysis.relations[0]
-    # 句選択の正否を修正したことにはせず、非選択語の混入と両端の重複投影を防ぐ。
     assert relation.queries == (
-        Query(("保持", "Your", "-", "node"), "VERB", "acl", ("name",), "NOUN", "head"),
+        Query(("読む",), "VERB", "obj", ("前語", "さ"), "NOUN", "dependent"),
     )
-    assert relation.predicate.text == "保持した<your-node"
-    assert relation.predicate.ranges == ((0, 14),)
-    assert relation.argument.text == "name"
-    assert relation.argument.ranges == ((15, 19),)
+    assert relation.argument.text == "前語でいるさ"
+    assert relation.argument.ranges == ((0, 6),)
+    assert relation.predicate.ranges == ((7, 9),)
     assert doc.to_bytes() == original
 
 
-@pytest.mark.parametrize("api", ["bunsetu_phrase_span", "bunsetu_phrase_tokens"])
-def test_phrase_contract_violation_is_a_system_error(parser, monkeypatch, api):
-    # 依存の契約違反を通常の照合結果へ変換しない。
-    monkeypatch.setattr(ginza, api, lambda token, **kwargs: token.doc[0:1])
+def test_functional_anchor_is_not_replaced_by_other_words_in_the_bunsetu():
+    doc = _classified_doc()
+    doc.user_data["bunsetu_position_types"][0] = "FUNC"
+    assert not adapt_doc(doc, doc.text).relations
+
+
+@pytest.mark.parametrize(
+    "words,pos,dependency",
+    [(["読む", "#"], ["VERB", "NOUN"], "acl"), (["本", "#"], ["NOUN", "VERB"], "obj")],
+)
+def test_punctuation_anchors_are_not_lexical_candidates(
+    parser, monkeypatch, words, pos, dependency
+):
+    doc = Doc(
+        parser._require_nlp().vocab,
+        words=words,
+        spaces=[False, False],
+        pos=pos,
+        heads=[1, 1],
+        deps=[dependency, "ROOT"],
+        lemmas=words,
+    )
+    assert doc[1].is_punct
+    monkeypatch.setattr(ginza, "bunsetu_head_tokens", lambda document: [document[1]])
+    monkeypatch.setattr(
+        ginza, "sub_phrases", lambda callback: lambda token: [(dependency, callback(doc[0]))]
+    )
+    assert not adapt_doc(doc, doc.text).relations
+
+
+def test_bunsetu_contract_violation_is_a_system_error(parser, monkeypatch):
+    doc = parser._require_nlp()("重複を畳む。")
+    monkeypatch.setattr(ginza, "bunsetu_span", lambda token: token.doc[0:1])
     with pytest.raises(ValueError, match="中心となる語が含まれていません"):
-        parser.analyze("重複を畳む。")
+        _comparison_tokens(doc[2])
 
 
-def test_surface_changes_and_model_failure_are_not_unobserved(monkeypatch):
+def test_missing_public_position_classification_is_not_silently_discarded():
+    doc = _classified_doc()
+    del doc.user_data["bunsetu_position_types"]
+    with pytest.raises(KeyError, match="bunsetu_position_types"):
+        adapt_doc(doc, doc.text)
+
+
+def test_surface_changes_and_model_failure_are_not_unobserved():
     doc = Doc(Vocab(), words=["重複"], spaces=[False])
     with pytest.raises(ValueError, match="原文全文"):
         adapt_doc(doc, "別の本文")
@@ -434,8 +512,8 @@ def test_surface_changes_and_model_failure_are_not_unobserved(monkeypatch):
     def fail(_text):
         raise RuntimeError("解析失敗")
 
-    monkeypatch.setattr("native_japanese.parser.spacy.load", lambda *args, **kwargs: fail)
     instance = Parser()
+    instance._nlp = fail
     with pytest.raises(RuntimeError, match="解析失敗"):
         instance.analyze("重複を畳む。")
     instance.close()

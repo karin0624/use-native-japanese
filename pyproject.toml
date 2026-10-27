@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "日本語の語の組合せを用例に照らして位置付きで確認するツール"
 requires-python = ">=3.12"
 dependencies = [
-    "ginza==5.3.0+nativejapanese.2",
+    "ginza==5.3.0",
     "ja-ginza==5.3.0",
     "spacy==3.8.16",
     "SudachiPy==0.6.11",
@@ -54,6 +54,3 @@ constraint-dependencies = [
     "threadpoolctl==3.7.0",
     "wrapt==2.5.1",
 ]
-
-[tool.uv.sources]
-ginza = { path = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl" }

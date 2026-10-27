@@ -1,6 +1,6 @@
 # Python APIとCLI
 
-通常のtextlint利用は[セットアップ](setup.md)を参照してください。以下は[開発環境](development.md)を準備し、独自の出典付き正本から配布参照を作る手順と内部APIです。`native-japanese`は`python -m native_japanese`でも呼べます。原コーパス本文と構築用正本はGit外に置き、公開しません。配布用の固定モデルと参照DBはGit LFSで管理し、npmへ実体を同梱します。現行の採用契約と検証範囲は[最新方針](compact-runtime-plan.md)を参照してください。
+通常のtextlint利用は[セットアップ](setup.md)を参照してください。以下は[開発環境](development.md)を準備し、独自の出典付き正本から配布参照を作る手順と内部APIです。`native-japanese`は`python -m native_japanese`でも呼べます。原コーパス本文と構築用正本はGit外に置き、公開しません。配布用の固定モデルと参照DBはGit LFSで管理し、npmへ実体を同梱します。現在の比較条件と検証範囲は[設計](design.md)を参照してください。Issue #15のv10は、旧契約と混用せず同じ本文から参照を再構築しました。条件と結果は[検証記録](projection-validation.md)を参照してください。
 
 ## 索引準備と検査
 
@@ -72,14 +72,18 @@ native-japanese prepare --examples "$ARCHIVE" --reference "$REFERENCE" --assets-
 | キー | 内容 |
 | --- | --- |
 | `schema_version` | 整数`2` |
-| `normalization_identity` | `ginza-bunsetu-lemma-no-ner-identifier-roles-v8` |
-| `predicate`・`noun` | GiNZAの句探索で選択された非空白Tokenから作る文字列配列。範囲拡張後の両端が重ならない関係では、選択Tokenが属する識別子を原文表記一項へ投影する。重なる場合は両端とも識別子へ投影せず、選択Tokenのlemmaを使う |
+| `normalization_identity` | `ginza-bunsetu-functional-projection-v10` |
+| `predicate`・`noun` | 各元anchorの所属文節から機能表現と非語彙を除き、残る全Tokenの公開lemmaを原文順に並べた文字列配列。識別子は解析前に結合する |
 | `predicate_type` | 述語役割の元Tokenの標準UD品詞（NOUN等も保持） |
 | `dependency` | 元依存ラベル（空でない文字列） |
 | `noun_type` | 名詞役割の元Tokenの標準UD品詞（ADJ・PRON等も保持） |
 | `noun_role` | 元方向`head`または`dependent` |
 | `source_id`・`observation_id`・`source_url` | 出典ID・出現ID・所在（空でない文字列） |
 
-`extract`は本文hashと端点から出現IDを作り、原文全文はJSONL・正本DBへ保存しません。表示端点は公開句内の非空白tokenの先頭から末尾までとし、句の内部にある原文の空白は保持します。名詞側が既存辞書の「助動詞語幹」に分類される関係は抽出しません。識別子の一部を含む句は全名を含む範囲に広げ、外側の語を保持します。広げた述語句と名詞句が重なる場合は、その関係の両端とも範囲拡張・識別子の一項化を行わず、元の公開句を表示し、識別子へ投影しない選択Tokenのlemmaで検査します。表示範囲の途中に含まれるだけの非選択Tokenは比較lemmaに加えません。識別子は構造文字を含むASCII profileと元token境界が一致する範囲で扱い、元Docの品詞・依存と、元の端点tokenのPOS/tagは変更しません。nsubj/obj/iobj/oblとacl/amodの公開役割だけを用法照合へ変換します。advcl等の節間修飾やnmod/compound等から、品詞だけで独立の用法を作りません。各節の明示された主語・目的語・oblは保持し、nmod/compoundは句構成の取得に引き続き使います（[解析契約](architecture.md#原文から位置付き指摘まで)）。両端の位置と全Queryが完全に同じ関係は、元の順序を保って一度だけ返します。旧契約のJSONL・参照DBとは混用せず、同じ元本文から再抽出します。旧KNPのschema1とも互換ではありません。抽出は正用の保証ではなく、出典選定・原文・利用条件の確認が必要です。評価入力や手作業の正解登録を、別出典追加の改善実証へ数えません。
+`extract`は本文hashと端点から出現IDを作り、原文全文はJSONL・正本DBへ保存しません。ASCIIの連続英数字wordrunと従来の英字/_開始の記号を含む識別子profileを分け、strict境界に合う複数Tokenだけを公開retokenizerで解析前に結合し、その同じDocを解析・照合します。一Tokenの公開lemmaは保持し、数字開始の記号結合を増やさず、解析後に識別子へ投影しません。
+
+比較語彙は所属文節の位置分類`FUNC`・`SYN_HEAD`または公開dep`aux`・`case`・`cop`に該当するTokenと、その文節内`fixed`直接子、公開`is_punct`・`is_space`を除いた全Tokenです。`CONT`を独立した語彙分類とはみなさず、`mark`・`cc`等を依存ラベルだけで追加除外しません。`NO_HEAD`を独自に機能語とは扱いません。表示は選択Tokenの先頭から末尾までの原文包絡一範囲とし、途中の非選択語を比較lemmaへ加えません。同文節の修飾も比較条件に残るため、完全な語彙IDではありません。元anchorが除外される場合、別の語で関係を作りません。
+
+元のnsubj/obj/iobj/oblとacl/amodの公開役割だけを用法照合へ変換し、元UPOS・依存辺・向きを保持します。名詞側が既存辞書の詳細品詞「助動詞語幹」に属する機能カテゴリは従来どおり抽出しません。他ラベルから品詞だけで独立した用法を作りません（[解析契約](architecture.md#原文から位置付き指摘まで)）。旧契約のJSONL・参照DBとは混用せず、同じ元本文から再抽出します。旧KNPのschema1とも互換ではありません。抽出は正用の保証ではなく、出典選定・原文・利用条件の確認が必要です。評価入力や手作業の正解登録を、別出典追加の改善実証へ数えません。
 
 `import`は再解析せず形式を検証して正本SQLiteへ保存します。不正行があれば取込全体を取り消し、同じ記録の再取込は重複登録しません。返却JSONは`records`（処理行数）、`usages_added`（新しい組合せ）、`observations_added`（新しい出典対応）です。同じ組合せの頻度・出典だけを増やしても、配布集合や等票の群平均は増えません。容量の増え方は[構成](architecture.md#用例の構築と配布を分ける)を参照してください。旧方式の[検証結果](runtime-validation.md)は履歴であり、現方式の精度・遅延を示しません。

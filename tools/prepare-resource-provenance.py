@@ -8,7 +8,10 @@ import json
 import shutil
 from pathlib import Path
 
-REFERENCE_SHA256 = "43967eab2791d5e9e01f96bb6a8724c5afde86c84a5d317e30aede5a2421ba49"
+from native_japanese.models import NORMALIZATION_IDENTITY
+
+REFERENCE_BYTES = 89964544
+REFERENCE_SHA256 = "94d2a3230d686a4f890d4d0c8935fdc897f2fda62dd110aaeea1fa41b84cf2ce"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
 
@@ -72,7 +75,7 @@ def main() -> None:
     if len(articles) != 1025 or len(seen) != 6463:
         raise ValueError("固定した1,025記事・6,463区間ではありません")
     for source, size, expected in (
-        (args.reference, 88936448, REFERENCE_SHA256),
+        (args.reference, REFERENCE_BYTES, REFERENCE_SHA256),
         (args.model, 21944687, MODEL_SHA256),
     ):
         if source.stat().st_size != size or digest(source) != expected:
@@ -113,7 +116,7 @@ def main() -> None:
             "schemaVersion": 1,
             "reference": {
                 "file": "reference.sqlite3",
-                "bytes": 88936448,
+                "bytes": REFERENCE_BYTES,
                 "sha256": REFERENCE_SHA256,
                 "license": "CC-BY-SA-4.0",
             },
@@ -135,16 +138,18 @@ def main() -> None:
                     "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d"
                 ),
                 "referenceTransformation": (
-                    "既存Docと依存辺を保ち、公開UD関係nsubj/obj/iobj/obl/acl/amodの役割・向きだけを"
-                    "読み取り、両端の元UPOSを保持する。"
-                    "GiNZAの既存句探索が選んだ"
-                    "Tokenの公開lemmaを照合し、ASCII識別子は選択Tokenから原文表記へ投影する。"
-                    "表示Span内の非選択Tokenを照合Token集合へ追加しない。用例集合のBloom filterと、"
-                    "異なる名詞列を等重みとした300次元ベクトル群平均。"
-                    "両端の表示範囲が重なる場合は識別子への投影を戻し、表示は元の句、"
-                    "照合は選択Tokenのlemmaを用いる。原文は収録しない。"
+                    "既存の英字開始識別子と連続英数字wordの範囲を、複数tokenに厳密一致する"
+                    "場合だけ公開retokenizerで解析前に一tokenへ結合し、単一tokenの公開lemmaは"
+                    "保持する。同じDocを解析・照合する。公開UD関係nsubj/obj/iobj/obl/acl/amodの"
+                    "元辺・役割・向き・両端の元UPOSを保持する。各元anchorの所属文節から"
+                    "公開FUNC/SYN_HEADまたは依存関係aux/case/copのtokenと、その文節内の"
+                    "fixed直接子、is_punct/is_spaceを除き、"
+                    "NO_HEADを含む残りの全Tokenの公開lemmaを原文順に照合する。"
+                    "同文節の修飾も比較条件に残る。用例集合のBloom filterと、"
+                    "異なる名詞列を等重みとした300次元ベクトル群平均。原述語は一般化しない。"
+                    "原文は収録しない。"
                 ),
-                "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-roles-v8",
+                "normalizationIdentity": NORMALIZATION_IDENTITY,
             },
         },
     )

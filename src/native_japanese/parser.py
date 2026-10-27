@@ -6,66 +6,75 @@ from importlib.metadata import PackageNotFoundError, version
 
 import ginza
 import spacy
+from spacy.language import Language
 from spacy.symbols import acl, amod, iobj, nsubj, obj, obl
 from spacy.tokens import Doc, Span, Token
 
 from .models import PARSER_VERSIONS, Analysis, Endpoint, Query, Relation
 
-_IDENTIFIER_PATTERN = re.compile(r"(?<![A-Za-z0-9_.-])[A-Za-z_][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*")
+_IDENTIFIER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*|[0-9][A-Za-z0-9_]*)"
+)
 _ARGUMENT_RELATIONS = {nsubj, obj, iobj, obl}
 _MODIFIER_RELATIONS = {acl, amod}
 
 
 def _identifier_spans(doc: Doc) -> tuple[Span, ...]:
-    # UAX #31のASCII profileを原文へ対応させ、部分tokenは拡張しない。
+    # 連続英数字wordと既存の英字開始識別子を保ち、数字間の記号結合は増やさない。
+    # 原文の部分tokenは拡張せず、一tokenの公開lemmaも保持する。
     spans = []
     for match in _IDENTIFIER_PATTERN.finditer(doc.text):
-        if not any(character in match.group() for character in "._-"):
-            continue
         span = doc.char_span(*match.span(), alignment_mode="strict")
-        if span is not None:
+        if span is not None and len(span) > 1:
             spans.append(span)
     return tuple(spans)
 
 
-def _close_phrase(phrase: Span, identifiers: tuple[Span, ...]) -> Span:
-    # 元の句を残し、重なる識別子の字句境界まで表示範囲を閉じる。
-    overlaps = [span for span in identifiers if span.start < phrase.end and phrase.start < span.end]
-    start = min([phrase.start, *(span.start for span in overlaps)])
-    end = max([phrase.end, *(span.end for span in overlaps)])
-    return phrase.doc[start:end]
+@Language.component("native_japanese_identifier_merge", retokenizes=True)
+def _merge_identifiers(doc: Doc) -> Doc:
+    # 解析する語境界を先に決め、比較lemmaも同じtokenから読む。
+    with doc.retokenize() as retokenizer:
+        for span in _identifier_spans(doc):
+            retokenizer.merge(span, attrs={"LEMMA": span.text})
+    return doc
 
 
-def _phrase_lemmas(
-    tokens: tuple[Token, ...], identifiers_by_token: dict[int, Span]
-) -> tuple[str, ...]:
-    lemmas = []
-    previous_identifier = None
-    for token in tokens:
-        identifier = identifiers_by_token.get(token.i)
-        if identifier is not None:
-            if identifier is not previous_identifier:
-                lemmas.append(identifier.text)
-            previous_identifier = identifier
-        elif not token.is_space:
-            lemmas.append(token.lemma_)
-    return tuple(lemmas)
+def _comparison_tokens(anchor: Token) -> tuple[Token, ...]:
+    """所属文節の機能側だけを除き、NO_HEADを含む残りの原語を保持する。"""
+    span = ginza.bunsetu_span(anchor)
+    if span.doc is not anchor.doc or not span.start <= anchor.i < span.end:
+        raise ValueError("解析された文節に、その文節の中心となる語が含まれていません。")
+    excluded = {
+        token.i
+        for token in span
+        if ginza.bunsetu_position_type(token) in {"FUNC", "SYN_HEAD"}
+        or token.dep_ in {"aux", "case", "cop"}
+    }
+    for index in tuple(excluded):
+        # UDのflatなfixed機能表現だけを、公開された直接の依存辺から読む。
+        for token in span.doc[index].children:
+            if span.start <= token.i < span.end and token.dep_ == "fixed":
+                excluded.add(token.i)
+    return tuple(
+        token
+        for token in span
+        if token.i not in excluded and not token.is_space and not token.is_punct
+    )
 
 
-def _endpoint(span: Span, text: str) -> Endpoint:
-    # 非語彙の空白tokenを端点から外し、句の内部にある原文の空白は残す。
-    tokens = tuple(token for token in span if not token.is_space)
+def _endpoint(tokens: tuple[Token, ...], text: str) -> Endpoint:
     if not tokens:
-        raise ValueError("解析された語句に、空白以外の語が含まれていません。")
-    span = span.doc[tokens[0].i : tokens[-1].i + 1]
+        raise ValueError("解析された語句に、比較する語が含まれていません。")
+    span = tokens[0].doc[tokens[0].i : tokens[-1].i + 1]
     start, end = span.start_char, span.end_char
     if not 0 <= start < end <= len(text) or text[start:end] != span.text:
         raise ValueError("解析された語句が、原文の対応する位置の文字列と一致しません。")
+    # 表示は原文の包絡に一度対応させ、比較lemmaには選択tokenだけを使う。
     return Endpoint(span.text, ((start, end),))
 
 
 def adapt_doc(doc: Doc, text: str) -> Analysis:
-    """公開token・主辞句・依存を読む。欠けた語や関係は補完しない。"""
+    """公開文節の非機能側と元依存を読む。欠けた語や関係は補完しない。"""
     if doc.text != text or "".join(token.text_with_ws for token in doc) != text:
         raise ValueError("解析結果が原文全文を保持していません。")
     cursor = 0
@@ -83,17 +92,11 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
     if any(not character.isspace() for character in text[cursor:]):
         raise ValueError("原文末尾の非空白文字が解析結果にありません。")
 
-    identifiers = _identifier_spans(doc)
-    identifiers_by_token = {token.i: span for span in identifiers for token in span}
     relations = []
     for head in ginza.bunsetu_head_tokens(doc):
         # callback元Tokenを保持し、返却phraseのrootと同一視しない。
         for dependency, dependent in ginza.sub_phrases(lambda token: token)(head):
             original_head = dependent.head
-            head_identifier = identifiers_by_token.get(original_head.i)
-            dependent_identifier = identifiers_by_token.get(dependent.i)
-            if head_identifier is not None and head_identifier is dependent_identifier:
-                continue
             # UDが明示する名詞項・名詞修飾の役割と方向だけを読む。
             if dependent.dep in _ARGUMENT_RELATIONS:
                 predicate, noun, noun_role = original_head, dependent, "dependent"
@@ -102,55 +105,35 @@ def adapt_doc(doc: Doc, text: str) -> Analysis:
             else:
                 continue
 
-            if predicate.is_space or noun.is_space:
+            if predicate.is_space or predicate.is_punct or noun.is_space or noun.is_punct:
                 continue
 
+            # 詳細品詞が明示する機能的カテゴリも、語彙端点へ読み替えない。
             if "助動詞語幹" in noun.tag_.split("-"):
                 continue
 
-            predicate_phrase = ginza.bunsetu_phrase_span(predicate, use_token_head=True)
-            noun_phrase = ginza.bunsetu_phrase_span(noun, use_token_head=True)
-            # 包絡Spanは表示用であり、途中の非選択語を比較lemmaに含めない。
-            predicate_tokens = ginza.bunsetu_phrase_tokens(predicate, use_token_head=True)
-            noun_tokens = ginza.bunsetu_phrase_tokens(noun, use_token_head=True)
-            if any(
-                not phrase.start <= token.i < phrase.end or token not in tokens
-                for token, phrase, tokens in (
-                    (predicate, predicate_phrase, predicate_tokens),
-                    (noun, noun_phrase, noun_tokens),
-                )
-            ):
-                raise ValueError("解析された語句に、その語句の中心となる語が含まれていません。")
-            expanded_predicate = _close_phrase(predicate_phrase, identifiers)
-            expanded_noun = _close_phrase(noun_phrase, identifiers)
-            predicate_endpoint = _endpoint(expanded_predicate, text)
-            noun_endpoint = _endpoint(expanded_noun, text)
-            predicate_start, predicate_end = predicate_endpoint.ranges[0]
-            noun_start, noun_end = noun_endpoint.ranges[0]
-            phrase_identifiers = identifiers_by_token
-            if predicate_start < noun_end and noun_start < predicate_end:
-                # 両端を別の範囲に対応できなければ、識別子への投影を双方とも戻す。
-                phrase_identifiers = {}
-                predicate_endpoint = _endpoint(predicate_phrase, text)
-                noun_endpoint = _endpoint(noun_phrase, text)
+            predicate_tokens = _comparison_tokens(predicate)
+            noun_tokens = _comparison_tokens(noun)
+            # 元端点が機能側なら、その文節の別の語へ置き換えて関係を作らない。
+            if predicate not in predicate_tokens or noun not in noun_tokens:
+                continue
             relations.append(
                 Relation(
-                    predicate_endpoint,
-                    noun_endpoint,
+                    _endpoint(predicate_tokens, text),
+                    _endpoint(noun_tokens, text),
                     (
                         Query(
-                            _phrase_lemmas(predicate_tokens, phrase_identifiers),
+                            tuple(token.lemma_ for token in predicate_tokens),
                             predicate.pos_,
                             dependency,
-                            _phrase_lemmas(noun_tokens, phrase_identifiers),
+                            tuple(token.lemma_ for token in noun_tokens),
                             noun.pos_,
                             noun_role,
                         ),
                     ),
                 )
             )
-    # 字句範囲への投影で同一になった用法だけを、元の順序を保って一度返す。
-    return Analysis(text, tuple(dict.fromkeys(relations)))
+    return Analysis(text, tuple(relations))
 
 
 class Parser:
@@ -167,6 +150,10 @@ class Parser:
                     f"解析に必要なバージョンと異なります: {package}=={installed}（必要: {expected}）。"
                 )
         self._nlp = spacy.load("ja_ginza", exclude=["ner"])
+        # C分割の補助データを元の処理で消費し、結合前の添字を後段へ残さない。
+        self._nlp.remove_pipe("compound_splitter")
+        self._nlp.add_pipe("compound_splitter", config={"split_mode": "C"}, first=True)
+        self._nlp.add_pipe("native_japanese_identifier_merge", after="compound_splitter")
 
     def _require_nlp(self):
         if self._nlp is None:

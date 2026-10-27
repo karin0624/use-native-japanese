@@ -6,7 +6,7 @@
 
 用例の支持があれば正常無出力、支持がなければ書き手への通常の`error`、解析や資源破損などの処理異常は`systemerror`とする。Bloom陽性、または同じ述語・関係条件の用例名詞群との類似度0.35以上を支持とする。ベクトルがない場合は類似度0を捏造せず、追加支持なしとして扱う。辞書不足warningや第四の保留状態は返さない。
 
-GiNZAは`5.3.0+nativejapanese.1`、正規化契約は`ginza-bunsetu-lemma-no-ner-v2`、参照schemaは`2`。既存の句探索を元Tokenから開始できる最小修正であり、既定pipelineの85本文での比較と再作成手順は[vendorの記録](../vendor/ginza/README.md)を参照する。Sudachiの形態素辞書と、名詞一般化用の既存圧縮fastTextを使い、未知語辞書や語例ルールは追加していない。
+GiNZAは`5.3.0+nativejapanese.1`、正規化契約は`ginza-bunsetu-lemma-no-ner-v2`、参照schemaは`2`。既存の句探索を元Tokenから開始できる最小修正であり、既定pipelineの85本文での比較と再作成手順は[当時のvendorの記録](https://github.com/karin0624/use-native-japanese/blob/c8ad035ff8fae6237bdc0110cdef2c84e348d491/vendor/ginza/README.md)を参照する。Sudachiの形態素辞書と、名詞一般化用の既存圧縮fastTextを使い、未知語辞書や語例ルールは追加していない。
 
 原文入力は従来と同じ1,025記事・6,463区間で、記事ID・区間ID・題名・URLと出典manifestは不変。圧縮モデルのbytesも不変である。結果に合わせた本文の再選別はしていない。
 
