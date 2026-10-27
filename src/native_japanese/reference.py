@@ -12,12 +12,20 @@ from pathlib import Path
 import numpy as np
 
 from . import membership, resources
-from .examples import Examples, canonical, group_key, query_key
-from .models import NORMALIZATION_IDENTITY, PARSER_VERSIONS, UD_POS_TAGS, Query
+from .examples import (
+    Examples,
+    canonical,
+    group_key,
+    parse_predicate_key,
+    parse_query_key,
+    predicate_key,
+    query_key,
+)
+from .models import NORMALIZATION_IDENTITY, PARSER_VERSIONS, Query
 from .support import Support, Vectors, direction, group_mean
 
 APPLICATION_ID = 0x4E4A5246
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DIMENSION = 300
 
 
@@ -38,7 +46,7 @@ def contract():
         "vector": vector_identity(),
         "dimension": DIMENSION,
         "dtype": "<f8",
-        "group": "distinct-noun-equal-mean-v1",
+        "group": "exact-predicate-attachment-relation-noun-feature-mean-v2",
     }
 
 
@@ -65,11 +73,16 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
             db.executescript("""
                 CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
                 CREATE TABLE membership (id INTEGER PRIMARY KEY CHECK(id=1), payload BLOB NOT NULL);
+                CREATE TABLE predicates (key TEXT PRIMARY KEY) WITHOUT ROWID;
                 CREATE TABLE groups (
                     key TEXT PRIMARY KEY, mean BLOB, comparable INTEGER NOT NULL,
                     total INTEGER NOT NULL
                 ) WITHOUT ROWID;
             """)
+            predicates = 0
+            for predicate in examples.iter_predicates():
+                db.execute("INSERT INTO predicates VALUES (?)", (predicate_key(predicate),))
+                predicates += 1
             groups = comparable = 0
             for key, queries in itertools.groupby(examples.iter_usages(), key=group_key):
 
@@ -88,7 +101,13 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
             # 保存経路を通った全登録が陽性であることを、公開前に正本へ照合する。
             if any(not membership.contains(restored, query_key(q)) for q in examples.iter_usages()):
                 raise ValueError("配布用の索引に登録されていない用例があります。")
-            identity = {**contract(), "usages": usages, "groups": groups, "comparable": comparable}
+            identity = {
+                **contract(),
+                "predicates": predicates,
+                "usages": usages,
+                "groups": groups,
+                "comparable": comparable,
+            }
             db.execute("INSERT INTO metadata VALUES ('identity',?)", (canonical(identity),))
             db.execute("INSERT INTO metadata VALUES ('membership',?)", (canonical(manifest),))
             db.execute("INSERT INTO membership VALUES (1,?)", (raw,))
@@ -97,6 +116,7 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
         temporary.replace(output)
         return {
             "usages": usages,
+            "predicates": predicates,
             "groups": groups,
             "comparable": comparable,
             "bytes": output.stat().st_size,
@@ -151,6 +171,7 @@ class Reference:
             "usages",
             "groups",
             "comparable",
+            "predicates",
         }:
             raise ValueError("参照DBの識別情報（identity）の項目が一致しません。")
         if any(type(identity[k]) is not type(v) or identity[k] != v for k, v in expected.items()):
@@ -159,7 +180,7 @@ class Reference:
             )
         if any(
             type(identity[k]) is not int or identity[k] < 0
-            for k in ("usages", "groups", "comparable")
+            for k in ("usages", "groups", "comparable", "predicates")
         ):
             raise ValueError("参照DBに記録された件数が不正です。")
         lengths = self.connection.execute("SELECT id,length(payload) FROM membership").fetchall()
@@ -172,29 +193,18 @@ class Reference:
             raise ValueError("Bloomフィルターの容量と参照DBの用例数が一致しません。")
         raw = self.connection.execute("SELECT payload FROM membership WHERE id=1").fetchone()[0]
         self.membership = membership.restore(raw, manifest)
+        predicates = set()
+        for (key,) in self.connection.execute("SELECT key FROM predicates"):
+            parse_predicate_key(key)
+            predicates.add(key)
+        if len(predicates) != identity["predicates"]:
+            raise ValueError("述語の厳密索引とメタデータの件数が一致しません。")
         groups = total = comparable = 0
         for key, mean, count, size in self.connection.execute("SELECT * FROM groups"):
             self._decode_group(mean, count, size)
-            values = json.loads(key)
-            if (
-                type(values) is not list
-                or len(values) != 6
-                or values[0] != NORMALIZATION_IDENTITY
-                or type(values[1]) is not list
-                or not values[1]
-                or any(type(lemma) is not str or not lemma for lemma in values[1])
-                or type(values[2]) is not str
-                or values[2] not in UD_POS_TAGS
-                or type(values[3]) is not str
-                or not values[3].strip()
-                or type(values[4]) is not str
-                or values[4] not in UD_POS_TAGS
-                or values[5] not in ("head", "dependent")
-                or canonical(values) != key
-            ):
-                raise ValueError(
-                    "用例のグループを表すキーの形式または作成時の設定（normalization_identity）が不正です。"
-                )
+            query = parse_query_key(key, group=True)
+            if predicate_key(query.predicate) not in predicates:
+                raise ValueError("関係群に対応する厳密な述語用例がありません。")
             groups += 1
             total += size
             comparable += count
@@ -243,16 +253,27 @@ class Reference:
             {
                 "source": "compiled-reference",
                 "normalization_identity": NORMALIZATION_IDENTITY,
-                "group": json.loads(group_key(query)),
+                "predicate": json.loads(predicate_key(query.predicate)),
+                "group": json.loads(group_key(query)) if query.dependency is not None else None,
             },
         )
-        if membership.contains(self.membership, query_key(query)):
+        # Bloomの誤陽性で未登録の述語・関係を支持しない。
+        if (
+            self.connection.execute(
+                "SELECT 1 FROM predicates WHERE key=?", (predicate_key(query.predicate),)
+            ).fetchone()
+            is None
+        ):
+            return Support(False, None, evidence)
+        if query.dependency is None:
             return Support(True, None, evidence)
         row = self.connection.execute(
             "SELECT mean,comparable,total FROM groups WHERE key=?", (group_key(query),)
         ).fetchone()
         if row is None:
             return Support(False, None, evidence)
+        if membership.contains(self.membership, query_key(query)):
+            return Support(True, None, evidence)
         blob, comparable, total = row
         mean = self._decode_group(*row)
         if mean is None or not np.any(mean):

@@ -18,7 +18,7 @@
 
 原資料は[日本語Wikipedia dump 2019-02-01](https://archive.org/details/jawiki-20190201)です。[dump metadata](https://archive.org/metadata/jawiki-20190201)のCC BY-SA 3.0と、そこから本文抽出・区間分割した[MIRACLコーパス](https://huggingface.co/datasets/miracl/miracl-corpus)の[カード](https://huggingface.co/datasets/miracl/miracl-corpus/blob/d921ec7e349ce0d28daf30b2da9da5ee698bef0d/README.md)のApache 2.0表示を保持します。後者はWikipedia本文の再許諾ではありません。使用revisionは`4b58cd23ae34af0f77c424b98807901cf472c377`です。
 
-当方による変更は、GiNZAによる語・関係の抽出、用例集合のBloom filter化、上記モデルによる名詞ベクトルの等票平均です。本文全文は含めません。抽出契約と資源識別情報は`assets/manifest.json`に記載します。元記事・モデルの提供者が本DBを提供・公認したものではありません。
+当方による変更は、GiNZAの元依存構造から作る述語構成・接続関係の完全一致表、用例集合のBloom filter、上記モデルで合成した異なる名詞特徴列のベクトルの等重み平均です。配布DBは派生キャッシュで、原文全文・全Doc・名詞側の元subtree graphを保持する構築用正本は配布しません。抽出契約と資源識別情報は`assets/manifest.json`に記載します。元記事・モデルの提供者が本DBを提供・公認したものではありません。
 
 元資料・モデルのCC BY-SA 3.0を保持し、派生DBには同条件§4(b)が認める後継版CC BY-SA 4.0を適用します。
 

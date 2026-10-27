@@ -6,15 +6,13 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from test_examples import lines, record
+from test_examples import QUERY, lines, record
 from test_support import vector_model
 
 from native_japanese import reference
 from native_japanese.examples import Examples, extract_records, group_key, query_key
-from native_japanese.models import Query
+from native_japanese.models import PredicateNode
 from native_japanese.parser import Parser
-
-QUERY = Query(("比べる",), "VERB", "obj", ("東",), "NOUN", "dependent")
 
 
 @pytest.fixture
@@ -64,10 +62,24 @@ def test_every_non_noun_condition_stays_fixed(setup_reference):
     reference.build_reference(source, output, assets)
     with reference.Reference(output, assets) as runtime:
         for changed in (
-            {"predicate": ("較べる",)},
-            {"predicate_type": "ADJ"},
+            {
+                "predicate": replace(
+                    QUERY.predicate, nodes=(replace(QUERY.predicate.nodes[0], lemma="較べる"),)
+                )
+            },
+            {
+                "predicate": replace(
+                    QUERY.predicate, nodes=(replace(QUERY.predicate.nodes[0], xpos="形容詞-一般"),)
+                )
+            },
+            {
+                "predicate": replace(
+                    QUERY.predicate,
+                    nodes=(replace(QUERY.predicate.nodes[0], inflection=("連体形",)),),
+                )
+            },
             {"dependency": "nsubj"},
-            {"noun_type": "PROPN"},
+            {"attachment": 1},
             {"noun_role": "head"},
         ):
             support = runtime.assess(replace(QUERY, noun=("西",), **changed))
@@ -78,20 +90,24 @@ def test_role_queries_roundtrip_with_original_predicate_and_argument_pos(tmp_pat
     parser = Parser()
     try:
         analyses = [
-            parser.analyze(text)
-            for text in ("既存の読込み経路を再利用する。", "基本形を返す。")
+            parser.analyze(text) for text in ("既存の読込み経路を再利用する。", "基本形を返す。")
         ]
     finally:
         parser.close()
-    queries = {query for analysis in analyses for row in analysis.relations for query in row.queries}
-    assert {(query.predicate_type, query.noun_type) for query in queries} == {
-        ("NOUN", "NOUN"),
-        ("VERB", "ADJ"),
+    queries = {
+        query for analysis in analyses for row in analysis.relations for query in row.queries
     }
+    assert {
+        (a.restore_doc()[r.view.predicate_attachment].pos_, a.restore_doc()[r.view.noun.root].pos_)
+        for a in analyses
+        for r in a.relations
+    } == {("NOUN", "NOUN"), ("VERB", "ADJ")}
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(
-            lines(*(row for analysis in analyses for row in extract_records(analysis, "出典", "url")))
+            lines(
+                *(row for analysis in analyses for row in extract_records(analysis, "出典", "url"))
+            )
         )
     with Examples(source) as examples:
         assert set(examples.iter_usages()) == queries
@@ -217,8 +233,10 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
         reference.Reference(output, assets)
 
 
-def test_whitespace_is_not_lexical_and_raw_pos_remains_in_reference_keys(tmp_path, monkeypatch):
-    # 改行を語彙へ混ぜない。元POSが違う出現は、黙って落としたり同一視したりしない。
+def test_whitespace_is_not_lexical_and_original_upos_is_preserved_outside_keys(
+    tmp_path, monkeypatch
+):
+    # 元UPOSは全Docに保存し、述語構成の厳密キーにはlemma・XPOS・Inflectionを使う。
     text = "重複を畳む。\n重複を畳む。"
     parser = Parser()
     try:
@@ -234,8 +252,9 @@ def test_whitespace_is_not_lexical_and_raw_pos_remains_in_reference_keys(tmp_pat
         assert query.predicate == plain_query.predicate
         assert query.noun == plain_query.noun
         assert query.dependency == plain_query.dependency
-        start, end = relation.predicate.ranges[0]
-        assert query.predicate_type == doc.char_span(start, end).root.pos_
+        token = analysis.restore_doc()[relation.view.predicate_attachment]
+        assert token.pos_ == doc[token.i].pos_
+        assert not any(lemma.isspace() for lemma in query.noun)
     usage_count = len({query_key(query) for query in queries})
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
     with Examples(source, writable=True) as examples:
@@ -247,3 +266,53 @@ def test_whitespace_is_not_lexical_and_raw_pos_remains_in_reference_keys(tmp_pat
     assert reference.build_reference(source, output, tmp_path)["usages"] == usage_count
     with reference.Reference(output, tmp_path) as runtime:
         assert all(runtime.assess(query).indexed for query in [plain_query, *queries])
+
+
+def test_bloom_false_positive_cannot_bypass_exact_predicate_or_relation(
+    setup_reference, monkeypatch
+):
+    source, output, assets = setup_reference
+    reference.build_reference(source, output, assets)
+    with reference.Reference(output, assets) as runtime:
+
+        def unexpected(*args):
+            pytest.fail("述語・接続先・関係・方向の厳密な確認より先にBloomを呼びました。")
+
+        monkeypatch.setattr(reference.membership, "contains", unexpected)
+        changed_predicate = replace(
+            QUERY.predicate,
+            nodes=(*QUERY.predicate.nodes, PredicateNode("せる", "助動詞", (), 0, "aux")),
+        )
+        for query in (
+            replace(QUERY, predicate=changed_predicate),
+            replace(QUERY, attachment=1),
+            replace(QUERY, dependency="nsubj"),
+            replace(QUERY, noun_role="head"),
+        ):
+            support = runtime.assess(query)
+            assert not support.indexed and support.score is None
+        monkeypatch.setattr(reference.membership, "contains", lambda *args: True)
+        assert runtime.assess(replace(QUERY, noun=("誤陽性",))).indexed
+
+
+def test_bare_predicate_uses_exact_composition_without_noun_similarity(tmp_path, monkeypatch):
+    parser = Parser()
+    try:
+        plain, causative = [parser.analyze(text) for text in ("畳む。", "畳ませる。")]
+    finally:
+        parser.close()
+    source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
+    with Examples(source, writable=True) as examples:
+        examples.import_jsonl(lines(*extract_records(plain, "出典", "url")))
+        assert not list(examples.iter_usages())
+        assert len(list(examples.iter_predicates())) == 1
+    monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
+    result = reference.build_reference(source, output, tmp_path)
+    assert result["predicates"] == 1 and result["usages"] == 0
+    with reference.Reference(output, tmp_path) as runtime:
+        monkeypatch.setattr(
+            reference.membership, "contains", lambda *args: pytest.fail("P0にBloomは不要")
+        )
+        assert runtime.assess(plain.relations[0].queries[0]).indexed
+        support = runtime.assess(causative.relations[0].queries[0])
+        assert not support.indexed and support.score is None

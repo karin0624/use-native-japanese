@@ -20,35 +20,65 @@
 
 支持なしは参照資料での判定であり、日本語全体での不存在を証明しません。
 
-## 方式
+## 恒久仕様
 
-### 語と関係
+- 原文全体と元の解析を保持し、どの処理でも文の一部を消す設計を禁止します。特定の処理が一部だけを見る場合は、元データへの参照範囲を別に示します。
+- 構文解析、構成の同定、関係の認定は静的に行い、類似度やしきい値を使いません。
+- 述語は構成を含めて用例にあることを必須とします。ただし、次項の根拠による異構成の用例流用を認めます。「畳む」の用例だけで「畳ませる」を支持しません。
+- 将来、言語の構文から当該文で両方の構成が使えると静的に確定できるなら、いずれかの用例で支持してよいものとします。その根拠を明示し、元の成分を保持したまま適用し、類似度や成分の除去で代用しません。
+- 類似度は名詞側の用例比較だけに使います。
+- 例文ごとの個別規則は設けません。
+- この仕様に反する案は直ちに不採用とします。
 
-[Parser](../../src/native_japanese/parser.py)はGiNZAのC分割後、ASCIIの連続英数字・英字等から始まる識別子を元Token境界に合う範囲で結合し、同じDocを解析します。NERは使いません。
+## 解析と比較範囲
 
-比較語彙は、関係端点が属する文節のlemma列です。位置分類`FUNC`・`SYN_HEAD`、依存関係`aux`・`case`・`cop`に該当するTokenとその文節内`fixed`直接子、空白・句読点を除きます。元端点が除外された関係は採りません。
+[Parser](../../src/native_japanese/parser.py)はGiNZAのC分割後、ASCIIの連続英数字・英字等から始まる識別子を元Token境界に合う範囲で結合し、同じDocを解析します。NERは使いません。解析後に語の結合・品詞の書換えは行いません。
 
-| 元依存関係 | 述語側P | 名詞側N |
+`Analysis`は原文全文と公開`Doc.to_bytes()`のsnapshotを保持します。Tokenの文字位置・lemma・UPOS・XPOS・形態情報・元依存辺、GiNZAの文節情報、Docのtensorも保存し、`restore_doc()`で独立したDocへ戻せます。[比較処理](../../src/native_japanese/comparison.py)は元Token IDを参照するviewを作り、原解析を変更しません。
+
+### 述語構成P
+
+元依存辺の`aux`・`cop`・`mark`・`fixed`・`compound`・`nummod`を構成辺とします。`acl`・`advcl`・`amod`は、同じ文節内で両端のUPOSが`VERB`・`ADJ`・`AUX`の場合だけ構成辺にします。親方向と子方向の両方をたどった連結成分がPです。`nmod`や文節境界だけで構成を拡張しません。
+
+Pの厳密キーは、成分根・相対語順・各語のlemmaとXPOSと`Inflection`・内部辺の接続先とラベルです。根の外部接続先とラベルはキーから外し、原Docへ残します。UPOS・Reading・絶対Token IDも原Docへ保持しますが、このキーには使いません。評価対象辺がPのどの語へ接続するかは、成分根と区別して記録します。
+
+P単独の照会に用いる登録は、次の元解析上の述語役割を観測した成分に限ります。
+
+- `nsubj`・`obj`・`iobj`・`obl`のhead、`acl`・`amod`のdependent。
+- `ROOT`・`ccomp`・`xcomp`・`advcl`・`acl`で、UPOSが`VERB`・`ADJ`、またはXPOSの先頭分類が動詞・形容詞・形状詞である語。
+- `aux`・`cop`のhead。
+
+選択した語と根拠の元辺・品詞をviewに保持します。一般の名詞や全ての文節頭を述語登録することはありません。関係のない述語成分もP単独で照会し、名詞の類似度を使わず厳密一致だけで判断します。
+
+### 評価辺と名詞側N
+
+| 元依存関係 | 述語側Pの接続先 | 名詞側Nの根 |
 | --- | --- | --- |
 | nsubj・obj・iobj・obl | head | dependent |
 | acl・amod | dependent | head |
 
-元UPOS・依存ラベル・方向を保持し、名詞側の詳細品詞が「助動詞語幹」の関係は除外します。表示は選択Tokenの先頭から末尾まで、照合は選択したlemmaだけを使います。
+構成内部の辺をPとNの関係として二重評価しません。Nは元のsubtree全体と内部辺を保持します。名詞側の特徴viewは評価辺のN側だけを参照し、逆向きの`acl`・`amod`ではPの接続語を根とするsubtreeを特徴から外します。元のN subtreeからその枝を削除することはありません。
 
-### 支持判定
+特徴viewの空白・句読点以外の全lemmaを既存の`Vectors.compose`へ渡します。助詞・名詞化要素・修飾句もこの範囲にあれば含めます。`もっとも`・`らし`・`さ`のような妥当な分割を復元したり、名詞側がAUXであるだけで関係を捨てたりしません。
 
-照合キーはP/Nのlemma列・元UPOS、依存ラベル、Nの方向です。解析契約の識別子と固定版は[models.py](../../src/native_japanese/models.py)で管理します。
+端点はPとNの元Tokenに対応する文字範囲を返します。連続しない範囲は別々に示し、表示文字列は先頭から末尾までの原文です。
 
-1. 同じキーがBloom陽性なら`indexed`。
-2. 陰性なら、N以外の条件を固定した用例名詞群と比較します。取得可能な各名詞列のベクトルを等票で平均し、入力名詞とのcosineが境界以上なら`supported`。
-3. どちらもなければ`review`として両端を指摘します。
+## 支持判定
 
-既定境界は0.35です。Pを類義語へ一般化せず、ベクトル・比較群がない場合は追加支持なしとします。類似度0への置換は行いません。資源破損・非有限値・解析契約の不一致は処理異常です。
+解析契約の識別子と固定版は[models.py](../../src/native_japanese/models.py)、交換形式は[API仕様](../reference/runtime.md)で定義します。照合は入力と参照に同じviewを適用します。
+
+1. P単独なら、厳密な述語索引への存在だけを確認します。
+2. 関係がある場合は、P・P内の接続先・元依存ラベル・Nの方向が一致する群の存在を確認します。群がなければ支持しません。
+3. 群があれば、Nのlemma列も含むキーがBloom陽性なら`indexed`にします。
+4. 陰性なら、群内の異なるN特徴列を等票で平均したベクトルと入力Nを比較し、cosineが境界以上なら`supported`にします。
+5. 支持がなければ`review`として原文位置を指摘します。
+
+既定境界は0.35です。これは名詞側の近似比較だけに使います。平均は語順を区別しない近似特徴であり、構文認識ではありません。構成の違うPの用例や、別の接続先・関係・方向の群を流用しません。ベクトルを取得できない場合は追加支持なしとし、類似度0へ置換しません。資源破損・非有限値・解析契約の不一致は処理異常です。
 
 ## 根拠と制約
 
-文節・依存関係の取得は[GiNZA](https://megagonlabs.github.io/ginza/)、機能表現の`fixed`は[UD](https://universaldependencies.org/ja/dep/fixed.html)に基づきます。支持推定の研究上の位置付けは[先行研究](../research/prior-research.md)を参照してください。
+文節の取得は[GiNZA](https://megagonlabs.github.io/ginza/)、原解析の保存は[spaCyの公開直列化](https://spacy.io/api/doc#to_bytes)を使います。構成辺は元依存木の静的な参照規約であり、別の解析器・辞書・学習モデルによる補完は行いません。支持推定の研究上の位置付けは[先行研究](../research/prior-research.md)を参照してください。
 
-文節の残り全体を比較するため、語の欠落や修飾語の混入が起こり得ます（[#19](https://github.com/karin0624/use-native-japanese/issues/19)、[#20](https://github.com/karin0624/use-native-japanese/issues/20)）。係り先や原形の取り違えも残ります（[#21](https://github.com/karin0624/use-native-japanese/issues/21)、[#22](https://github.com/karin0624/use-native-japanese/issues/22)）。
+元解析の係り先やlemmaの取り違えは残ります（[#21](https://github.com/karin0624/use-native-japanese/issues/21)、[#22](https://github.com/karin0624/use-native-japanese/issues/22)）。構成と活用が厳密一致しない正用は参照を共有できず、一般の名詞同士の修飾関係は評価対象外です。
 
-Bloom陽性には低確率の誤通過があります。群平均と境界は正誤確率ではなく、用例追加で判定が悪化する場合もあります。表記差とベクトルの取得範囲により正用を支持できない例があります（[#23](https://github.com/karin0624/use-native-japanese/issues/23)、[#24](https://github.com/karin0624/use-native-japanese/issues/24)）。
+Bloom陽性には、厳密に存在する群の内側で低確率の誤通過があります。群平均と境界は正誤確率ではなく、用例追加で判定が悪化する場合もあります。表記差とベクトルの取得範囲により正用を支持できない例があります（[#23](https://github.com/karin0624/use-native-japanese/issues/23)、[#24](https://github.com/karin0624/use-native-japanese/issues/24)）。
