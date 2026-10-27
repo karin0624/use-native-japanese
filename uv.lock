@@ -627,8 +627,8 @@ wheels = [
 
 [[package]]
 name = "ginza"
-version = "5.3.0+nativejapanese.2"
-source = { path = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl" }
+version = "5.3.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "plac" },
     { name = "spacy" },
@@ -637,21 +637,8 @@ dependencies = [
     { name = "thinc-apple-ops", marker = "python_full_version < '3.13' and platform_machine == 'arm64' and sys_platform == 'darwin'" },
 ]
 wheels = [
-    { filename = "ginza-5.3.0+nativejapanese.2-py3-none-any.whl", hash = "sha256:4ad15f1d3ef083eb540c1da9d2490ff2fe7934226e5b4b1bb8eaf281c54fcbd7" },
+    { url = "https://files.pythonhosted.org/packages/a8/d8/cc3f4aa583a3451e90e8b491baad2cdde91ddbc856118ac595c9373f485b/ginza-5.3.0-py3-none-any.whl", hash = "sha256:4eede7b0f7390bfdd325d3811e66de58d21f70471c215eea457e044dc5b766ad", size = 22154, upload-time = "2026-09-30T06:23:25.768Z" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "cupy-cuda11x", marker = "extra == 'cuda11x'" },
-    { name = "cupy-cuda12x", marker = "extra == 'cuda12x'" },
-    { name = "cupy-cuda13x", marker = "extra == 'cuda13x'" },
-    { name = "plac", specifier = ">=1.3.3" },
-    { name = "spacy", specifier = ">=3.8.16,<4.0.0" },
-    { name = "sudachidict-core", specifier = ">=20210802" },
-    { name = "sudachipy", specifier = ">=0.6.11,<0.7.0" },
-    { name = "thinc-apple-ops", marker = "python_full_version < '3.13' and platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=1.0.0" },
-]
-provides-extras = ["cuda11x", "cuda12x", "cuda13x"]
 
 [[package]]
 name = "h11"
@@ -2014,7 +2001,7 @@ requires-dist = [
     { name = "compress-fasttext", specifier = "==0.1.5" },
     { name = "fsspec", marker = "extra == 'setup'", specifier = "==2026.7.0" },
     { name = "gensim", specifier = "==4.4.0" },
-    { name = "ginza", path = "vendor/ginza/ginza-5.3.0+nativejapanese.2-py3-none-any.whl" },
+    { name = "ginza", specifier = "==5.3.0" },
     { name = "ja-ginza", specifier = "==5.3.0" },
     { name = "numpy", specifier = "==2.5.4" },
     { name = "pyprobables", specifier = "==0.7.0" },

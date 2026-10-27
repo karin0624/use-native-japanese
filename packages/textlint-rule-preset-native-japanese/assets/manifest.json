@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "reference": {
     "file": "reference.sqlite3",
-    "bytes": 88936448,
-    "sha256": "43967eab2791d5e9e01f96bb6a8724c5afde86c84a5d317e30aede5a2421ba49",
+    "bytes": 89964544,
+    "sha256": "94d2a3230d686a4f890d4d0c8935fdc897f2fda62dd110aaeea1fa41b84cf2ce",
     "license": "CC-BY-SA-4.0"
   },
   "model": {
@@ -21,7 +21,7 @@
     "sourcesFile": "sources.json",
     "sourcesSha256": "0f3ca30a36145f1c8368eb029385c1557fb8d2df0299503207ea66953484f50c",
     "selectionManifestSha256": "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d",
-    "referenceTransformation": "既存Docと依存辺を保ち、公開UD関係nsubj/obj/iobj/obl/acl/amodの役割・向きだけを読み取り、両端の元UPOSを保持する。GiNZAの既存句探索が選んだTokenの公開lemmaを照合し、ASCII識別子は選択Tokenから原文表記へ投影する。表示Span内の非選択Tokenを照合Token集合へ追加しない。用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。両端の表示範囲が重なる場合は識別子への投影を戻し、表示は元の句、照合は選択Tokenのlemmaを用いる。原文は収録しない。",
-    "normalizationIdentity": "ginza-bunsetu-lemma-no-ner-identifier-roles-v8"
+    "referenceTransformation": "既存の英字開始識別子と連続英数字wordの範囲を、複数tokenに厳密一致する場合だけ公開retokenizerで解析前に一tokenへ結合し、単一tokenの公開lemmaは保持する。同じDocを解析・照合する。公開UD関係nsubj/obj/iobj/obl/acl/amodの元辺・役割・向き・両端の元UPOSを保持する。各元anchorの所属文節から公開FUNC/SYN_HEADまたは依存関係aux/case/copのtokenと、その文節内のfixed直接子、is_punct/is_spaceを除き、NO_HEADを含む残りの全Tokenの公開lemmaを原文順に照合する。同文節の修飾も比較条件に残る。用例集合のBloom filterと、異なる名詞列を等重みとした300次元ベクトル群平均。原述語は一般化しない。原文は収録しない。",
+    "normalizationIdentity": "ginza-bunsetu-functional-projection-v10"
   }
 }

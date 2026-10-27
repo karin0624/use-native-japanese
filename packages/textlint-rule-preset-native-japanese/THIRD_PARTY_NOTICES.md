@@ -20,18 +20,20 @@
 
 元資料は[2019-02-01の日本語Wikipedia dump](https://archive.org/details/jawiki-20190201)で、[dump metadata](https://archive.org/metadata/jawiki-20190201)はCC BY-SA 3.0を示す。この資料から作られた[MIRACL日本語コーパス](https://huggingface.co/datasets/miracl/miracl-corpus)のParquet revision `4b58cd23ae34af0f77c424b98807901cf472c377`を使用した。MIRACL contributorsによるplain text抽出・区間分割にも帰属する。[カード](https://huggingface.co/datasets/miracl/miracl-corpus/blob/d921ec7e349ce0d28daf30b2da9da5ee698bef0d/README.md)のApache 2.0表示を保持するが、Wikipedia本文をApache 2.0へ再許諾したとは扱わない。MIRACLの公開ライセンス原文も`licenses/MIRACL-Apache-2.0.txt`に収録する。
 
-既取得subsetから記事IDの固定hash順で選んだ1,024記事と、追加記事「ヴァニティ・フェア (バンド)」の合計1,025記事・6,463区間を使用した。本文をNERなしのGiNZAで解析し、既存Docのtoken・lemma・依存辺・文節境界を変更しなかった。用例の役割・向きは公開UD関係`nsubj/obj/iobj/obl`、`acl/amod`だけから読み取り、両端の元UPOSをそのまま保持した。照合にはGiNZAの既存句探索が選んだTokenの公開lemmaを用い、ASCII識別子は選択Tokenから原文表記へ投影した。表示用の包絡Spanにだけ含まれる非選択Tokenは照合Token集合へ追加しない。両端の表示範囲が重なる場合は識別子への投影を戻し、表示は元の句、照合は選択Tokenのlemmaを用いる。公開`is_space`に該当する空白tokenは語彙の対象から外した。この集合をBloom filterと、異なる名詞列を等重みとした上記モデルの300次元ベクトル群平均へ変換した。本文全文、構築用正本、個々の出典本文は含まない。これらの抽出・変換・平均化が当方による変更であり、元記事や元モデルが本DBを提供したものではない。
+既取得subsetから記事IDの固定hash順で選んだ1,024記事と、追加記事「ヴァニティ・フェア (バンド)」の合計1,025記事・6,463区間を用いる。現行の抽出契約は`ginza-bunsetu-functional-projection-v10`であり、同じ本文での再構築を完了した。配布資源の確定したsize・hash・契約は`assets/manifest.json`に記す。再構築した参照は89,964,544 bytes、SHA-256 `94d2a3230d686a4f890d4d0c8935fdc897f2fda62dd110aaeea1fa41b84cf2ce`。最終配布物への反映と接続は別途確認する。
+
+v10の変換では、ASCIIの連続英数字wordrunと従来の英字/_開始の記号を含む識別子profileを分け、元境界にstrictに一致する複数Tokenだけを解析前に結合する。一Tokenの公開lemmaは保ち、数字開始の記号結合は増やさない。同じDocをNERなしの公式GiNZAで解析・照合する。用例の役割・向きは公開UD関係`nsubj/obj/iobj/obl`、`acl/amod`だけから読み取り、元依存辺と両端の元UPOSを保持する。比較語彙は各元anchorの所属文節から、位置分類`FUNC`・`SYN_HEAD`または公開dep`aux`・`case`・`cop`のTokenと、その文節内`fixed`直接子、公開`is_punct`・`is_space`を除いた全Tokenの公開lemmaである。`CONT`は語彙分類とみなさず、`NO_HEAD`を独自に機能語とせず、`mark`・`cc`等を依存ラベルだけで追加除外しない。同文節の修飾も条件に残る。表示範囲内の非選択Tokenを比較lemmaに加えず、原述語の一般化や解析後の識別子投影は行わない。用例集合をBloom filterと、異なる名詞列を等重みとした上記モデルの300次元ベクトル群平均へ変換する。本文全文、構築用正本、個々の出典本文は含めない。これらの抽出・変換・平均化が当方による変更であり、元記事や元モデルが本DBを提供したものではない。
 
 元資料とモデルのCC BY-SA 3.0を保持し、派生DBにはその§4(b)が認める同じ条件の後継版を適用する。ライセンス原文：`licenses/CC-BY-SA-3.0.txt`、`licenses/CC-BY-SA-4.0.txt`。
 
 ## 起動に用いる依存ソフトウェア
 
-- GiNZA `5.3.0+nativejapanese.2`：MIT。Megagon Labsの公式5.3.0へ、既存の句探索を元Tokenから開始する明示optionと、その探索で選ばれたToken集合を返すAPIを当方が追加したもの。既定の解析動作は維持する。`backend/vendor/ginza/`に同梱し、元の著作権・許諾・免責原文は`licenses/ginza-MIT.txt`とwheel内に保持する。公式配布物のhash、改修差分、再作成手順はrepositoryの`vendor/ginza/`に記録する。[公式source](https://github.com/megagonlabs/ginza/tree/v5.3.0)。
+- GiNZA `5.3.0`：MIT。Megagon Labsの公式配布物を変更せず使用する。版・取得URL・hashは`backend/uv.lock`へ固定し、元の著作権・許諾・免責原文は`licenses/ginza-MIT.txt`にも保持する。[公式source](https://github.com/megagonlabs/ginza/tree/v5.3.0)。
 - `@dataiku/uv` 0.12.0：MIT。Copyright (c) 2025 Trevor Manz。[uv-npm](https://github.com/575-lab/uv-npm)。原文は`licenses/uv-npm-MIT.txt`。
 - uv 0.12.0：MITの許諾を使用。Copyright (c) 2025 Astral Software Inc.。[uv](https://github.com/astral-sh/uv/tree/0.12.0)。原文は`licenses/uv-MIT.txt`。
 - `compress-fasttext`：MIT。Copyright (c) 2020 David Dale。[compress-fasttext](https://github.com/avidale/compress-fasttext)。圧縮ソフトウェアのMITとモデル自体のCC条件は別である。原文は`licenses/compress-fasttext-MIT.txt`。
 
-Python本体と上記GiNZA以外のPython依存packageは初回実行時にuv経由で取得する別配布物であり、それぞれの提供者の条件を保持する。
+Python本体とGiNZAを含むPython依存packageは初回実行時にuv経由で取得する別配布物であり、それぞれの提供者の条件を保持する。
 
 ## ライセンス原文の取得元
 
@@ -42,4 +44,4 @@ Python本体と上記GiNZA以外のPython依存packageは初回実行時にuv経
 - `uv-MIT.txt`：https://raw.githubusercontent.com/astral-sh/uv/0.12.0/LICENSE-MIT
 - `uv-npm-MIT.txt`：https://raw.githubusercontent.com/575-lab/uv-npm/main/LICENSE
 - `compress-fasttext-MIT.txt`：https://raw.githubusercontent.com/avidale/compress-fasttext/master/LICENSE
-- `ginza-MIT.txt`：GiNZA公式5.3.0 wheelの`ginza-5.3.0.dist-info/licenses/LICENSE`。公式wheelのURLとhashはrepositoryの`vendor/ginza/upstream.json`。
+- `ginza-MIT.txt`：GiNZA公式5.3.0 wheelの`ginza-5.3.0.dist-info/licenses/LICENSE`。公式wheelのURLとhashは`backend/uv.lock`。

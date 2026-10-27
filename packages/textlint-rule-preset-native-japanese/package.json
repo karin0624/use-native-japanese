@@ -9,7 +9,6 @@
     "src/*.js",
     "backend/pyproject.toml",
     "backend/uv.lock",
-    "backend/vendor/ginza/*.whl",
     "backend/src/native_japanese/**/*.py",
     "backend/src/native_japanese/data/*.json",
     "assets",
