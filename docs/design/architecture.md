@@ -28,7 +28,10 @@ config:
 flowchart TB
     document[/検査する文書/] --> extract["textlintルールで文書から<br/>検査する本文を取り出す"]
     extract -->|本文をJSONLで送る| parser["GiNZAで本文を解析し<br/>単語・品詞・係り受けを得る<br/>（解析器 Parser）"]
-    parser -->|同じ原文と解析結果を<br/>各判定機へ渡す| judges["用例を根拠に<br/>語の使い方を判定する<br/>（用法判定機 UsageJudge）"]
+    subgraph judges_group["判定機"]
+        judges["用例を根拠に<br/>語の使い方を判定する<br/>（用法判定機 UsageJudge）"]
+    end
+    parser -->|同じ原文と解析結果を<br/>各判定機へ渡す| judges
     reference[("用例から作った照合データ<br/>検査端末用のSQLiteデータベース")] --> judges
     judges --> aggregate["各判定機の照合結果と<br/>指摘をまとめる（Inspector）"]
     aggregate -->|照合結果と指摘文を<br/>本文内の位置とともに<br/>JSONLで返す| report["textlintルールで指摘位置を<br/>文書の原文に対応付け<br/>メッセージを表示する"]
