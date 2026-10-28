@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
+import { spawnSync } from "node:child_process";
 import { createLinter, loadTextlintrc } from "textlint";
 import preset from "../src/index.js";
 import { configuration, getWorker, Worker } from "../src/worker.js";
@@ -20,10 +21,49 @@ async function setup(t, options = {}, fixtureArgs = []) {
         usage: { ...preset.rulesConfig.usage, ...config }
     } } }));
     const descriptor = await loadTextlintrc({ configFilePath });
-    const linter = createLinter({ descriptor });
+    const linter = createLinter({ descriptor: descriptor.shallowMerge({
+        plugins: [{ pluginId: "native-japanese-markdown", plugin: preset, options: true }, ...descriptor.toKernelOptions().plugins]
+    }) });
     t.after(async () => { getWorker(config).close(); await rm(dir, { recursive: true, force: true }); });
-    return { linter, config, log: async () => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse) };
+    return { linter, config, dir, configFilePath,
+        log: async () => (await readFile(path, "utf8")).trim().split("\n").map(JSON.parse) };
 }
+
+test("通常CLIのplugin指定で変換本文を検査し、--fixでもMarkdown原文を保持する", async t => {
+    const { dir, configFilePath, log } = await setup(t);
+    const path = join(dir, "原文.md");
+    const text = "# 🍣 **&#x96F2;を食べる**。\r\n\r\n\\* 雲を食べる。";
+    await writeFile(path, text);
+    const cli = fileURLToPath(new URL("../../../node_modules/textlint/bin/textlint.js", import.meta.url));
+    for (const extra of [[], ["--fix"]]) {
+        const result = spawnSync(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese",
+            "--config", configFilePath, "--format", "json", ...extra, path], { encoding: "utf8", timeout: 10_000 });
+        assert.equal(result.status, extra.length ? 0 : 1, result.stderr);
+        const [output] = JSON.parse(result.stdout);
+        assert.deepEqual(output.messages.map(message => message.range), extra.length ? [] : [
+            [text.indexOf("&#x96F2;"), text.indexOf("**。")],
+            [text.indexOf("雲"), text.indexOf("雲") + "雲を食べる".length]
+        ]);
+        assert.equal(await readFile(path, "utf8"), text);
+    }
+    // textlintの--fixは修正可能なルールだけを実行する。
+    assert.deepEqual((await log()).map(request => request.texts), [["🍣 雲を食べる。", "* 雲を食べる。"]]);
+});
+
+test("標準Markdown拡張子で本文を解析し、frontmatterの全形式を除外する", async t => {
+    const { linter, log } = await setup(t);
+    for (const extension of ["md", "markdown", "mdown", "mkdn", "mkd", "mdwn", "mkdown", "ron"]) {
+        const text = "**雲を食べる**。";
+        assert.deepEqual((await linter.lintText(text, `文書.${extension}`)).messages.map(message => message.range), [[2, 7]]);
+    }
+    for (const header of ["---\n雲を食べる\n---", "+++\n雲を食べる\n+++", ";;;\n雲を食べる\n;;;",
+        "---json\n雲を食べる\n---", "{\n雲を食べる\n}"]) {
+        const text = `${header}\n\n雲を食べる。`;
+        assert.deepEqual((await linter.lintText(text, "文書.md")).messages.map(message => message.range),
+            [[text.lastIndexOf("雲"), text.lastIndexOf("雲") + "雲を食べる".length]]);
+    }
+    assert.deepEqual((await log()).map(request => request.texts), Array.from({ length: 13 }, () => ["雲を食べる。"]));
+});
 
 test("強調・リンクを跨いで一括送信し、見出しと絵文字の位置を原文へ戻す", async t => {
     const { linter, log } = await setup(t);
@@ -164,17 +204,6 @@ test("codeのpadding・複数backtickと引用・リスト継続行の位置を�
     assert.deepEqual((await log())[0].texts, [" Pod を削除する。", "`Pod`を削除する。", "a\r\nbを削除する。", "a\nbを削除する。"]);
 });
 
-test("codeのAST・原文・tokenが一致しない場合は未検査にせずエラーにする", async () => {
-    const text = "`Pod`を削除する。";
-    for (const change of [{ value: "別名" }, { range: [1, 4] }, { raw: "`別名`" }]) {
-        const listeners = preset.rules.usage({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" } },
-            { command: [process.execPath] });
-        listeners.Paragraph({ type: "Paragraph", raw: text, range: [0, text.length],
-            children: [{ type: "Code", raw: "`Pod`", value: "Pod", range: [0, 5], ...change }] });
-        await assert.rejects(listeners["Document:exit"]({ raw: text }), /インラインコードの解析結果が原文と一致/);
-    }
-});
-
 test("画像・HTMLの前後を連結せず、fenceを除外する", async t => {
     const { linter, log } = await setup(t);
     const text = "雲を`x`食べる。\n\n`雲を食べる`\n\n```txt\n雲を食べる\n```\n\n雲を![画像](url)食べる。\n\n雲を<span>食べる</span>。";
@@ -263,21 +292,16 @@ test("Markdownのhard breakを改行へ変換し、txtとtextでは構文を文�
         ["& 雲を食べる。\r\n* Podを削除する。\r\n続き。"]]);
 });
 
-test("本文のAST・原文・tokenが一致しない場合は未検査にせずエラーにする", async () => {
-    const text = "&amp; 雲を食べる。";
-    for (const change of [{ value: "& 別文。" }, { range: [1, text.length] }, { raw: "&amp; 別文。" }]) {
-        const listeners = preset.rules.usage({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" } },
-            { command: [process.execPath] });
-        listeners.Paragraph({ type: "Paragraph", raw: text, range: [0, text.length],
-            children: [{ type: "Str", raw: text, value: "& 雲を食べる。", range: [0, text.length], ...change }] });
-        await assert.rejects(listeners["Document:exit"]({ raw: text }), /本文の解析結果が原文と一致/);
-    }
+test("pluginのないMarkdownは設定案内を返し、構文を解析機へ送らない", async () => {
+    const listeners = preset.rules.usage({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" },
+        getFilePath: () => "文書.md" }, { command: [process.execPath] });
+    await assert.rejects(listeners["Document:exit"]({ raw: "**雲を食べる**" }), /--plugin textlint-rule-preset-native-japanese/);
 });
 
 test("並列文書の応答を混同せず同じプロセスを再利用し、commandをshell展開しない", async t => {
     const { linter, log, config } = await setup(t);
     const documents = ["遅延 🍣 **雲を食べる**", "雲を食べる"];
-    const results = await Promise.all(documents.map((text, i) => linter.lintText(text, `${i}.md`)));
+    const results = await Promise.all(documents.map(text => linter.lintText(text, "並列.md")));
     assert.equal(results[0].messages[0].index, documents[0].indexOf("雲"));
     assert.equal(results[1].messages[0].index, 0);
     const requests = await log();
@@ -324,7 +348,7 @@ test("外部commandの起動失敗と設定した応答期限を伝える", asyn
 test("UTF-16のサロゲート境界・範囲外・encoding・訂正候補の不正を拒否する", async t => {
     const { linter } = await setup(t);
     for (const [text, error] of [["🍣範囲不正", /UTF-16範囲/], ["&#x1F363;範囲不正", /UTF-16範囲/], ["範囲外", /UTF-16範囲/],
-        ["encoding不正", /offsetEncoding/], ["候補不正", /suggestions/]]) {
+        ["encoding不正", /offsetEncoding/], ["候補不正", /suggestions/], ["説明不正", /message/]]) {
         await assert.rejects(linter.lintText(text, "文書.md"), error);
     }
 });

@@ -18,8 +18,8 @@ npm exec --no -- uv sync --locked --managed-python --python 3.12.13
 リポジトリのルートでcheckoutのソースを検査します。
 
 ```sh
-npx textlint README.md
-npx textlint "docs/**/*.md"
+npx textlint --plugin textlint-rule-preset-native-japanese README.md
+npx textlint --plugin textlint-rule-preset-native-japanese "docs/**/*.md"
 ```
 
 テストと静的検査を実行します。

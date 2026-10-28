@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,22 +51,34 @@ test("CLIは指摘なしなら成功し、本文へのerrorと処理異常を区
             usage: { command, severity: "error" }
         }
     } }));
+    const transformed = "&amp; 雲を食べる。\n\n\\* 雲を食べる。\n\n&amp; **雲を食べる**。";
     for (const [name, text, status, severities] of [
         ["supported", "ご飯を食べる。", 0, []],
-        ["review", "🍣 雲を食べる。", 1, [2]]
+        ["review", "🍣 雲を食べる。", 1, [2]],
+        ["transformed", transformed, 1, [2, 2, 2]]
     ]) {
         const file = path.join(directory, `${name}.md`);
         await writeFile(file, text);
-        const [result] = run(process.execPath, [cli, "--config", config,
+        const [result] = run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--config", config,
             "--format", "json", file], [status]);
         assert.deepEqual(result.messages.map(message => message.severity).sort(), severities);
         for (const message of result.messages) {
             assert.equal(message.ruleId, "native-japanese/usage");
         }
+        if (name === "transformed") {
+            assert.deepEqual(result.messages.map(message => message.range),
+                [...text.matchAll(/雲を食べる/gu)].map(match => [match.index, match.index + match[0].length]));
+        }
     }
+    const requests = (await readFile(path.join(directory, "worker.log"), "utf8")).trim().split("\n").map(JSON.parse);
+    assert.deepEqual(requests[2].texts, ["& 雲を食べる。", "* 雲を食べる。", "& 雲を食べる。"]);
+    const transformedFile = path.join(directory, "transformed.md");
+    run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--config", config,
+        "--fix", "--format", "json", transformedFile], [0, 1]);
+    assert.equal(await readFile(transformedFile, "utf8"), transformed);
     const failedFile = path.join(directory, "systemerror.md");
     await writeFile(failedFile, "エラー");
-    const failed = spawnSync(process.execPath, [cli, "--config", config, "--format", "json", failedFile],
+    const failed = spawnSync(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--config", config, "--format", "json", failedFile],
         { cwd: root, encoding: "utf8", shell: false, timeout: 120_000 });
     assert.ifError(failed.error);
     assert.notEqual(failed.status, 0);
@@ -87,10 +99,10 @@ test("checkoutの設定でファイル・globを検査し、公開Python CLIのU
     await Promise.all(files.map((file, i) => writeFile(file, texts[i])));
 
     // cwdの設定を自動読込し、checkoutのソースをファイル指定で検査する。
-    const first = run(process.execPath, [cli, "--format", "json", files[0]], [0, 1]);
+    const first = run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--format", "json", files[0]], [0, 1]);
     assert.equal(first.length, 1);
     const glob = `${directory.split(path.sep).join("/")}/*.md`;
-    const results = run(process.execPath, [cli, "--format", "json", glob], [0, 1]);
+    const results = run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--format", "json", glob], [0, 1]);
     assert.equal(results.length, files.length);
     for (let i = 0; i < files.length; i++) {
         const result = results.find(item => path.basename(item.filePath) === `${i}.md`);

@@ -8,6 +8,8 @@
 
 プリセット名は`preset-native-japanese`、ルール名は`native-japanese/usage`。
 
+Markdownでは同梱processorを`--plugin textlint-rule-preset-native-japanese`で選ぶ。公開版textlint 15.8.0は設定ファイルのpluginより内蔵processorを先に選ぶため、CLIの`--plugin`指定を使う。`.txt`・`.text`は内蔵のテキストprocessorで検査できる。
+
 | 項目 | 型・既定値 | 意味 |
 | --- | --- | --- |
 | `command` | 文字列配列・省略可能 | 実行ファイルと引数。省略時は同梱検査器を自動準備する |
@@ -62,12 +64,10 @@ textlintではプリセット設定の上書き時にseverityが引き継がれ�
 | フェンスコード | 対象外 |
 | 画像・HTML・未知ノード | 前後の本文を分離 |
 
-Markdownの解釈と原文への位置変換はtextlintルールが担当し、解析機には通常のテキストを一括送信する。`.txt`・`.text`はMarkdownとして解析しない。
+Markdownの解釈は同梱processorが担当し、ルールは通常のテキストを解析機へ一括送信する。`.txt`・`.text`はMarkdownとして解析しない。
 
-MarkdownはDocument全体をmicromarkで解析し、tokenの原文範囲を使って本文のUTF-16位置との対応を保持する。文字参照やエスケープで長さが変わる部分も、この対応とtextlintの`locator.range`で元ファイルへ戻す。装飾を跨ぐ指摘には、その間のMarkdown記号を含む。
+processorは`mdast-util-from-markdown`の公開APIで文書を一度だけ解析し、その解析中に生成された本文とtokenの原文範囲を保持する。文字参照やエスケープで長さが変わる部分も、この対応とtextlintの`locator.range`で元ファイルへ戻す。装飾を跨ぐ指摘には、その間のMarkdown記号を含む。
 
-通常本文とインラインコードでは、textlintの解析結果とmicromarkの本文・範囲を照合し、不一致は処理エラーにする。引用・リスト継続行の本文もtokenの範囲を使う。改行は保持し、Markdownの強制改行を表すバックスラッシュや末尾スペースは本文に含めない。インラインコード内の文字参照・エスケープは文字通り保持する。
-
-textlint 15で文字参照の末尾位置が欠ける場合と、補助平面の数値文字参照で復号値が異なる場合は、照合時に差を吸収する。送信本文と原文範囲にはmicromarkの結果を使う。
+引用・リスト継続行の本文もtokenの範囲を使う。改行は保持し、Markdownの強制改行を表すバックスラッシュや末尾スペースは本文に含めない。インラインコード内の文字参照・エスケープは文字通り保持する。本文と位置の対応が不正な場合や、Markdownで同梱processorが選ばれていない場合は処理エラーにする。
 
 複数文字に展開する文字参照の一部が指摘された場合は、対応する文字参照全体を原文の指摘範囲に含める。

@@ -6,7 +6,8 @@
 
 | 部品 | 責務 |
 | --- | --- |
-| [textlintルール](../../packages/textlint-rule-preset-native-japanese/src/index.js) | 本文抽出、原文への位置変換、指摘表示 |
+| [textlint processor](../../packages/textlint-rule-preset-native-japanese/src/markdown.js) | Markdownを一度だけ解析し、段落本文と原文範囲を渡す |
+| [textlintルール](../../packages/textlint-rule-preset-native-japanese/src/index.js) | 通常テキストの一括送信、原文への位置変換、指摘表示 |
 | [worker](../../packages/textlint-rule-preset-native-japanese/src/worker.js) | JSONL通信、要求と応答の対応、プロセス共有 |
 | [runtime](../../packages/textlint-rule-preset-native-japanese/src/runtime.js) | uvによるPython環境の準備と起動 |
 | [Parser](../../src/native_japanese/parser.py) | 原文・GiNZAのDoc・復元に必要な語彙情報を`Analysis`へ保持 |
@@ -28,7 +29,7 @@ config:
         wrappingWidth: 320
 ---
 flowchart TB
-    document[/検査する文書/] --> extract["textlintルールで文書から<br/>検査する本文を取り出す"]
+    document[/検査する文書/] --> extract["textlint processorで文書から<br/>検査する本文と原文位置を得る"]
     extract -->|本文をJSONLで送る| parser["GiNZAで本文を解析し<br/>単語・品詞・係り受けを得る<br/>（解析器 Parser）"]
     subgraph judges_group["判定機"]
         judges["用例を根拠に<br/>語の使い方を判定する<br/>（述語判定機 PredicateJudge）"]
