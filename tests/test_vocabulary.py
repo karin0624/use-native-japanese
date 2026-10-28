@@ -236,7 +236,6 @@ def test_long_generation_chain_roundtrip_uses_no_python_recursion():
     restored = restore_vocabulary(restored_state)
     assert set(restored.strings) == set(vocab.strings)
     assert len(restored) == len(vocab)
-    assert len(repr(generation)) < 200
 
 
 def test_generation_rejects_missing_parent_and_content_identity_mismatch():

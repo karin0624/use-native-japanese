@@ -7,10 +7,6 @@ from functools import cached_property
 from .vocabulary import VocabularySnapshot, restore_vocabulary
 
 NORMALIZATION_IDENTITY = "ginza-predicate-role-occurrence-v12"
-# UDの標準UPOS。端点の役割と元の品詞を分け、両方の交換・参照検証で共用する。
-UD_POS_TAGS = frozenset(
-    "ADJ ADP ADV AUX CCONJ DET INTJ NOUN NUM PART PRON PROPN PUNCT SCONJ SYM VERB X".split()
-)
 PARSER_VERSIONS = {
     "ginza": "5.3.0",
     "ja-ginza": "5.3.0",

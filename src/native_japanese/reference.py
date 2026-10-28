@@ -25,7 +25,7 @@ from .models import NORMALIZATION_IDENTITY, PARSER_VERSIONS, Query
 from .support import Support, Vectors, direction, group_mean
 
 APPLICATION_ID = 0x4E4A5246
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DIMENSION = 300
 
 
@@ -66,7 +66,10 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
         with Examples(source) as examples, closing(sqlite3.connect(temporary)) as db, db:
             examples.connection.execute("BEGIN")
             usages = examples.connection.execute("SELECT count(*) FROM usages").fetchone()[0]
-            builder = membership.Builder(usages)
+            noun_usages = examples.connection.execute(
+                "SELECT count(*) FROM usages WHERE noun != '[]'"
+            ).fetchone()[0]
+            builder = membership.Builder(noun_usages)
             vectors = Vectors(resources.load_fixed_vector(Path(assets_dir)))
             if vectors.model.vector_size != DIMENSION:
                 raise ValueError("固定の単語ベクトルの次元数が一致しません。")
@@ -88,15 +91,16 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
                 first = next(queries)
                 queries = itertools.chain((first,), queries)
 
-                def nouns():
-                    for query in queries:
-                        builder.add(query_key(query))
-                        yield query.noun
-
                 if first.related_predicate is not None:
-                    total = sum(1 for _ in nouns())
+                    total = sum(1 for _ in queries)
                     mean, count = None, 0
                 else:
+
+                    def nouns():
+                        for query in queries:
+                            builder.add(query_key(query))
+                            yield query.noun
+
                     mean, count, total = group_mean(nouns(), vectors)
                 blob = mean.astype("<f8").tobytes() if mean is not None else None
                 db.execute("INSERT INTO groups VALUES (?,?,?,?)", (key, blob, count, total))
@@ -104,8 +108,12 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
                 comparable += count
             raw, manifest = builder.finish()
             restored = membership.restore(raw, manifest)
-            # 保存経路を通った全登録が陽性であることを、公開前に正本へ照合する。
-            if any(not membership.contains(restored, query_key(q)) for q in examples.iter_usages()):
+            # 保存経路を通った名詞と述語の全登録を、公開前に正本へ照合する。
+            if any(
+                not membership.contains(restored, query_key(q))
+                for q in examples.iter_usages()
+                if q.related_predicate is None
+            ):
                 raise ValueError("配布用の索引に登録されていない用例があります。")
             identity = {
                 **contract(),
@@ -149,10 +157,9 @@ class Reference:
             raise
 
     def _load(self, file_size):
-        if (
-            self.connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
-            or self.connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
-        ):
+        application_id = self.connection.execute("PRAGMA application_id").fetchone()[0]
+        schema_version = self.connection.execute("PRAGMA user_version").fetchone()[0]
+        if application_id != APPLICATION_ID or schema_version not in (3, SCHEMA_VERSION):
             raise ValueError("配布用の参照DBの種類またはバージョンが一致しません。")
         lengths = self.connection.execute(
             "SELECT key,length(CAST(value AS BLOB)) FROM metadata"
@@ -171,7 +178,7 @@ class Reference:
             for key, value in self.connection.execute("SELECT * FROM metadata")
         }
         identity = meta["identity"]
-        expected = contract()
+        expected = {**contract(), "schema_version": schema_version}
         if type(identity) is not dict or set(identity) != {
             *expected,
             "usages",
@@ -195,8 +202,6 @@ class Reference:
         manifest = meta["membership"]
         if type(manifest) is not dict or manifest.get("raw_bytes") != lengths[0][1]:
             raise ValueError("Bloomフィルターのデータ長が、記録された長さと一致しません。")
-        if type(manifest.get("capacity")) is not int or manifest["capacity"] != identity["usages"]:
-            raise ValueError("Bloomフィルターの容量と参照DBの用例数が一致しません。")
         raw = self.connection.execute("SELECT payload FROM membership WHERE id=1").fetchone()[0]
         self.membership = membership.restore(raw, manifest)
         predicates = set()
@@ -205,7 +210,7 @@ class Reference:
             predicates.add(key)
         if len(predicates) != identity["predicates"]:
             raise ValueError("述語の厳密索引とメタデータの件数が一致しません。")
-        groups = total = comparable = 0
+        groups = total = comparable = noun_usages = 0
         for key, mean, count, size in self.connection.execute("SELECT * FROM groups"):
             self._decode_group(mean, count, size)
             query = parse_query_key(key, group=True)
@@ -216,6 +221,8 @@ class Reference:
                     raise ValueError("関係群の第二述語に対応する厳密な用例がありません。")
                 if mean is not None or count != 0:
                     raise ValueError("述語同士の関係群に名詞類似のデータがあります。")
+            else:
+                noun_usages += size
             groups += 1
             total += size
             comparable += count
@@ -225,6 +232,9 @@ class Reference:
             identity["comparable"],
         ):
             raise ValueError("用例のグループに含まれる件数が、参照DBのメタデータと一致しません。")
+        capacity = identity["usages"] if schema_version == 3 else noun_usages
+        if manifest["capacity"] != capacity:
+            raise ValueError("Bloomフィルターの容量と参照DBの対象用例数が一致しません。")
         self.identity = identity
 
     @staticmethod

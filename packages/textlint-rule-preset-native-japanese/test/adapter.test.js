@@ -11,10 +11,10 @@ import { configuration, getWorker, Worker } from "../src/worker.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/worker.js", import.meta.url));
 
-async function setup(t, options = {}) {
+async function setup(t, options = {}, fixtureArgs = []) {
     const dir = await mkdtemp(join(tmpdir(), "native-japanese-"));
     const path = join(dir, "人工記録 ; $() .log");
-    const config = configuration({ command: [process.execPath, fixture, path], ...options });
+    const config = configuration({ command: [process.execPath, fixture, path, ...fixtureArgs], ...options });
     const configFilePath = join(dir, ".textlintrc.json");
     await writeFile(configFilePath, JSON.stringify({ rules: { "preset-native-japanese": {
         usage: { ...preset.rulesConfig.usage, ...config }
@@ -112,13 +112,14 @@ test("指摘のない本文は無出力にし、指摘をerrorとして文書ご
     assert.deepEqual((await linter.lintText("ご飯を食べる。", "文書.md")).messages, []);
 });
 
-test("同じ本文とパスを再検査しても前の判定を再利用しない", async t => {
-    const { linter, log } = await setup(t);
+test("同じ本文とパスの再検査で外部commandの新しい判定を返す", async t => {
+    // 外部commandの応答を現在の検査結果へ反映する契約を確かめる。
+    const { linter } = await setup(t, {}, ["--clear-diagnostics-after-first-request"]);
     const text = "雲を食べる。";
     const first = await linter.lintText(text, "文書.md");
     const second = await linter.lintText(text, "文書.md");
-    assert.deepEqual(second.messages, first.messages);
-    assert.equal((await log()).length, 2);
+    assert.equal(first.messages.length, 1);
+    assert.deepEqual(second.messages, []);
 });
 
 test("codeのpadding・複数backtickと引用・リスト継続行の位置を保持する", async t => {

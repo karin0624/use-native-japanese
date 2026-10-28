@@ -56,9 +56,7 @@ class UsageJudge:
         analysis.validate_comparison()
         assessments = []
         diagnostics = []
-        for relation in analysis.relations:
-            if not relation.queries:
-                raise ValueError("語の関係に照会条件がありません。解析結果を確認してください。")
+        for relation in analysis.comparison.relations:
             queries = []
             for query in relation.queries:
                 support = self.reference.assess(query)

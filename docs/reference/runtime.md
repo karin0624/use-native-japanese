@@ -114,4 +114,4 @@ CLIの終了値は正常処理0、処理失敗1、引数の誤り2。`lint`は�
 
 `import`は原文・Doc・語彙情報・出典を保存し、[静的view](../design/usage.md)から索引を作る。正本DBは基底資源を`vocabularies`、各差分世代を`vocabulary_generations`へ一度だけ保存し、`documents`に資源ID・世代ID・文書の語彙状態を保持する。`iter_records()`で全文・語彙情報・全出典をJSONLへ戻せ、基底と各世代のpayloadは初出だけに出力する。配布DBは厳密な述語・実共起群の存在索引、Bloom集合、名詞特徴の群平均を持つ、検査用の派生データである。
 
-用例JSONLと正本DBはschema 4、配布参照は独立したschema 3で、いずれも定めた解析契約と一致する版だけを読み込む。
+用例JSONLと正本DBはschema 4を使う。配布参照は独立した形式で、`prepare`はN–P関係だけをBloom集合に登録するschema 4を生成する。読込はschema 4と、全関係をBloom集合に登録したschema 3に対応する。いずれも定めた解析契約との一致を必要とする。
