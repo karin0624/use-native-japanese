@@ -2,6 +2,8 @@
 
 導入は[セットアップ](../guide/setup.md)、checkoutからの実行は[開発手順](../guide/development.md)を参照。
 
+現在のプリセットは、開発途中の[述語と組み合わせの用法照合](../design/usage.md)を実行する。[製品の目的](../../README.md)に含まれる他の解析機と修正案の生成は未実装である。
+
 ## 設定
 
 プリセット名は`preset-native-japanese`、ルール名は`native-japanese/usage`。
@@ -41,7 +43,7 @@ textlintではプリセット設定の上書き時にseverityが引き継がれ�
 | 支持なし | 語の両端へ`usage`の`error`・1 |
 | 解析・資源・通信などの処理異常 | `systemerror`・失敗 |
 
-支持の[判定条件と限界](../design/usage.md)は照合方式を参照。候補は説明文に表示し、自動修正は行わない。
+支持の[判定条件と限界](../design/usage.md)は照合方式を参照。外部検査器が`suggestions`を返した場合は説明文に候補を表示し、自動修正は行わない。同梱検査器は候補を生成しない。
 
 ## 外部検査器との通信
 

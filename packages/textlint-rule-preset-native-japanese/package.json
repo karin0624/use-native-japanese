@@ -2,7 +2,7 @@
   "name": "textlint-rule-preset-native-japanese",
   "version": "0.1.0",
   "private": true,
-  "description": "日本語の語の組み合わせを用例に照らして検査するtextlintプリセット",
+  "description": "不適切な日本語を位置と修正案で指摘することを目指す開発中のtextlintプリセット",
   "type": "module",
   "exports": "./src/index.js",
   "files": [

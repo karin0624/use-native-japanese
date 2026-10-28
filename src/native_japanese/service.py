@@ -1,4 +1,4 @@
-"""解析結果と近似集合・比較可能な支持を結び、原文の端点を返す。"""
+"""同じ原解析を各判定機へ渡し、照合結果と原文位置付きの指摘を集約する。"""
 
 import math
 from collections.abc import Iterable
@@ -45,8 +45,8 @@ class JudgeResult:
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
-class UsageJudge:
-    """解析を受け取り、用法照合だけの局所viewと参照照会を行う。"""
+class PredicateJudge:
+    """解析を受け取り、述語の組み合わせを照合する局所viewと参照照会を扱う。"""
 
     def __init__(self, reference: Reference, threshold: float):
         self.reference = reference
@@ -104,7 +104,7 @@ class Inspector:
         self._stack = ExitStack()
         try:
             reference = self._stack.enter_context(Reference(reference_path, assets_dir))
-            self.judges = (UsageJudge(reference, threshold),)
+            self.judges = (PredicateJudge(reference, threshold),)
             self.parser = Parser()
             self._stack.callback(self.parser.close)
         except BaseException:

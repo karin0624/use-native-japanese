@@ -1,7 +1,7 @@
 [project]
 name = "use-native-japanese"
 version = "0.0.0"
-description = "日本語の語の組合せを用例に照らして位置付きで確認するツール"
+description = "AIなどが書いた不適切な日本語を位置と修正案で指摘することを目指す開発中のツール"
 requires-python = ">=3.12"
 dependencies = [
     "ginza==5.3.0",
