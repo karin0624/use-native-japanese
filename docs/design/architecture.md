@@ -20,32 +20,43 @@
 ### 本文の検査
 
 ```mermaid
+---
+config:
+    flowchart:
+        wrappingWidth: 320
+---
 flowchart TB
-    document["検査する文書"] --> extract["textlintルール<br/>本文を抽出"]
-    extract -->|workerがJSONLで送信| parser["Parser<br/>GiNZAで解析"]
-    parser --> analysis["Analysis<br/>解析対象の原文・Doc・復元用の語彙情報"]
-    analysis -->|同じAnalysisを渡す| judges["各判定機のjudge.assess<br/>UsageJudge"]
-    reference[("配布参照SQLite")] -->|用例との照合に使用| judges
-    judges --> aggregate["Inspector<br/>各判定機の結果を集約"]
-    aggregate -->|指摘をJSONLで返す| report["textlintルール<br/>文書の原文位置へ変換して指摘を表示"]
+    document[/検査する文書/] --> extract["文書から検査する本文を<br/>取り出す"]
+    extract -->|本文をJSONLで送る| parser["本文の単語・品詞・<br/>係り受けを解析する"]
+    parser -->|同じ原文と解析結果を<br/>各判定機へ渡す| judges["用例を根拠に<br/>語の使い方を判定する"]
+    reference[("用例から作った照合データ<br/>検査端末用のSQLiteデータベース")] --> judges
+    judges --> aggregate["各判定機の照合結果と<br/>指摘をまとめる"]
+    aggregate -->|照合結果と指摘文を<br/>本文内の位置とともに<br/>JSONLで返す| report["指摘位置を文書の原文に対応付け<br/>メッセージを表示する"]
 ```
 
-`UsageJudge`は、受け取った`Analysis`から用法照合に必要な語の関係を取り出して検証し、参照へ照会します。入力と参照には共通の[比較条件](usage.md)を適用します。
+解析器は受け取った本文を原文として保持し、単語の位置・品詞・活用・係り受けなど、GiNZAが返す全解析情報を保存します。解析結果を読み戻せるよう、解析時点の語の表記・属性・単語ベクトルなどの辞書データも保持します。各判定機はこれらの情報を参照します。用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。
 
 ### 参照の構築
 
 ```mermaid
+---
+config:
+    flowchart:
+        wrappingWidth: 320
+---
 flowchart TB
     subgraph build["構築環境"]
-        source["出典本文・出典情報"] --> extract["extract<br/>GiNZAで解析してJSONLへ書き出す"]
-        extract --> records["JSONL<br/>原文・解析結果・出典情報"]
-        records --> import["import<br/>正本へ取り込む"]
-        import --> master[("正本SQLite<br/>原文・解析結果・全出典との対応を保存")]
-        master --> prepare["prepare<br/>配布用の参照を構築"]
+        source[/出典本文と出典ID・URL/] --> extract["出典本文を解析し<br/>出典情報とともに書き出す"]
+        extract --> records[/原文・解析結果・出典情報<br/>JSONL/]
+        records --> import["原文と解析結果を取り込み<br/>各出典に対応付ける"]
+        import --> master[("正本SQLite<br/>原文・解析結果・全出典との対応")]
+        master --> prepare["正本の用例から<br/>検査端末用の照合データを作る"]
     end
-    prepare --> reference[("配布参照SQLite<br/>述語の厳密索引・実共起群<br/>Bloom集合・名詞群平均")]
-    reference --> runtime["検査端末で読み込む"]
+    prepare --> reference[("用例から作った照合データ<br/>検査端末用のSQLiteデータベース")]
+    reference --> runtime["照合データを読み込み<br/>本文の検査に使う"]
 ```
+
+書き出し・取り込み・照合データの作成には、CLIの`extract`・`import`・`prepare`を使います。配布する照合データには、述語の構成や語の組み合わせを検索する索引と、名詞の意味の近さを比べるための数値データを収めます。索引と類似度の使い分けは[照合手順](usage.md#支持判定)、保存形式は[API仕様](../reference/runtime.md#用例jsonl)を参照してください。
 
 ## 実行・配布
 
