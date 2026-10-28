@@ -7,6 +7,7 @@
 | 設定・APIを調べる | [textlint](reference/textlint.md)、[Python・CLI](reference/runtime.md) |
 | 仕組みを理解する | [構成](design/architecture.md)、[用法照合](design/usage.md) |
 | 研究の根拠と限界を調べる | [先行研究](research/prior-research.md) |
+| 日本語の比較単位を調べる | [名詞と述語の比較](research/japanese-predicate-comparison.md) |
 
 ## 保存先と書式
 
