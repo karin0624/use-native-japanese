@@ -20,7 +20,7 @@ from native_japanese.vocabulary import (
 
 
 def test_document_vocabulary_keeps_complete_resources_and_local_lexeme_values():
-    # 元解析の情報を消さない要求から、本文外の固定語彙も復元後に参照可能とする。
+    # 本文外の固定語彙も、解析時の値で復元できることを確かめる。
     vocab = Vocab()
     vocab.set_vector("本文", np.array([1.0, 2.0, 3.0], dtype="f"))
     vocab.set_vector("固定語彙", np.array([4.0, 5.0, 6.0], dtype="f"))
@@ -149,7 +149,7 @@ def test_merged_vector_and_previous_document_state_survive_shared_generations():
     first_state = snapshot_vocabulary(first, resources, recorder=recorder)
     first_values = first[0].vector.copy()
     second = Doc(vocab, words=["next"])
-    # 現文にない過去のLexemeへの変更も保存する。
+    # 解析済みの他文書に含まれるLexemeへの変更も保存する。
     vocab["first second"].is_stop = True
     vocab.strings.add("本文で使われない文字列")
     second_state = snapshot_vocabulary(second, resources, recorder=recorder)

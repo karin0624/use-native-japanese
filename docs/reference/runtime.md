@@ -17,15 +17,15 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
 
 | メソッド | 戻り値 |
 | --- | --- |
-| `analyze(text: str)` | 原文・完全Docのsnapshot・語彙情報を持つ`Analysis` |
+| `analyze(text: str)` | 原文・Docのsnapshot・語彙情報を持つ`Analysis` |
 | `lint(text: str)` | `analysis`・`relations`・`diagnostics`を持つ`LintResult` |
 | `lint_many(texts: Iterable[str])` | 入力順の`tuple[LintResult, ...]` |
 
-`Inspector`は解析後の同じ完全`Analysis`を各`judge.assess(analysis)`へ渡し、`JudgeResult`の関係と指摘を集約する。現在の`judges`は`UsageJudge`一つで、`assess()`内で用法照合用viewの作成・検証と参照照会を行う。
+`Inspector`は解析後の同じ`Analysis`を各`judge.assess(analysis)`へ渡し、`JudgeResult`の関係と指摘を集約する。`judges`は`UsageJudge`一つで、`assess()`内で用法照合用viewの作成・検証と参照照会を行う。
 
 `Analysis`は`text`・`snapshot`・`vocabulary: VocabularySnapshot`を持つ。`vocabulary.resources`は固定Vocab全資源、`vocabulary.generation`は解析時点の`VocabularyGeneration`への参照である。世代は親と差分snapshotを持ち、`generation_id`・`resource_id`・`parent_id`で識別する。Parser所有の`VocabularyRecorder`が追加・変更を記録し、各世代を不変値として共有する。文書のLexeme・lookups状態は`vocabulary`に分けて保持する。`Analysis.restore_doc()`は語彙情報を含めて保存したDocの独立したコピーを返す。
 
-`Analysis.usage_structure`は完全`Analysis`を参照する用法照合用の`UsageStructure`で、その`document`は固定Vocab全体を複製しない局所viewである。`comparison`・`predicates`・`relations`はこの用法viewを使う便利APIである。
+`Analysis.usage_structure`は`Analysis`を参照する用法照合用の`UsageStructure`で、その`document`は用法照合に必要な語彙を持つ局所viewである。`comparison`・`predicates`・`relations`はこの用法viewを使う便利APIである。
 
 `predicates`は元述語役割の証拠付き構成と`marker_units`（markとそのfixed機能単位）、`relations`は評価辺・端点・照会・比較viewを返す。viewのToken IDと依存辺は同じsnapshotを参照する。`predicate_root`は同じ文書内のP出現を指す。`OccurrenceView`はNの全subtreeと、`noun_feature_nodes`・`noun_case_nodes`・`noun_mark_nodes`・`noun_predicate_roots`を分けて持つ。P–P関係では`Query.related_predicate`と`related_attachment`で第二Pと接続点を保持し、`Query.noun`は空になる。`Analysis.comparison.roles`と`targets`には、認識した役割と、各元辺を関係・構成内部として参照する区分や、非語彙端点・名詞表現として働かない修飾先（`non_nominal_modifier`）などの対象外理由を保持する。
 
@@ -53,7 +53,7 @@ native-japanese import --examples /path/to/archive.sqlite3 /path/to/examples.jso
 native-japanese prepare --examples /path/to/archive.sqlite3 --reference /path/to/reference.sqlite3 --assets-dir /path/to/assets
 ```
 
-`import`は不正行があれば全件を取り消し、同じ記録を重複登録しない。返す件数は`records`・`documents_added`・`predicates_added`・`usages_added`・`observations_added`。取込後は`prepare`で参照を更新し、検査器を起動し直す。正本DBは検査時には不要。
+`import`は不正行があれば全件を取り消し、同じ記録は一件として登録する。返す件数は`records`・`documents_added`・`predicates_added`・`usages_added`・`observations_added`。取込後は`prepare`で参照を更新し、検査器を起動し直す。検査には配布参照DBを使う。
 
 ## JSONL通信
 
@@ -78,7 +78,7 @@ native-japanese prepare --examples /path/to/archive.sqlite3 --reference /path/to
 | `suggestions` | 外部検査器が任意に返す訂正候補の文字列配列。空白だけの要素は不可。本体は未生成 |
 | `relations` | 本体が返す関係・支持情報。textlint接続では省略可能 |
 
-本体のCLI出力は関係の端点もUTF-16へ変換する。Python文字添字と混用しない。
+本体のCLI出力は関係の端点もUTF-16へ変換する。Python APIの位置単位はPython文字添字である。
 
 ## エラー
 
@@ -110,12 +110,8 @@ CLIの終了値は正常処理0、処理失敗1、引数の誤り2。`lint`は�
 | `vocabulary_state_base64` | 文書のLexeme属性・lookups・世代IDを保持する状態のbase64文字列 |
 | `source_id`・`observation_id`・`source_url` | 空白だけではない出典ID・出現ID・所在 |
 
-`extract`は原文のSHA-256を出現IDに使う。語彙資源と世代の保持範囲は[解析と比較範囲](../design/usage.md#解析と比較範囲)で定義する。基底資源と必要な祖先世代を当該行・同じストリームの先行行・正本DBから解決できなければ取り込めない。文書IDはDocのbytes・共有資源ID・世代IDを含む文書の語彙状態から計算し、語彙状態だけが異なる解析も区別する。同じ文書の全出典を保持し、NN tensorのbatch演算差でsnapshotが異なる場合でも、比較viewから同じ用法を重複排除する。tensorのbyte一致を構文の同一性とはしない。
+`extract`は原文のSHA-256を出現IDに使う。語彙資源と世代の保持範囲は[解析と比較範囲](../design/usage.md#解析と比較範囲)で定義する。基底資源と必要な祖先世代を当該行・同じストリームの先行行・正本DBから解決できなければ取り込めない。文書IDはDocのbytes・共有資源ID・世代IDを含む文書の語彙状態から計算し、語彙状態だけが異なる解析も区別する。同じ文書の全出典を保持し、NN tensorのbatch演算差でsnapshotが異なる場合でも、比較viewから同じ用法を重複排除する。
 
-`import`は原文・完全Doc・語彙情報・出典を保存し、[静的view](../design/usage.md)から索引を作る。正本DBは基底資源を`vocabularies`、各差分世代を`vocabulary_generations`へ一度だけ保存し、`documents`に資源ID・世代ID・文書の語彙状態を保持する。文書ごとに累積全表を複製しない。`iter_records()`で全文・語彙情報・全出典をJSONLへ戻せ、基底と各世代のpayloadは初出だけに出力する。配布DBは厳密な述語・実共起群の存在索引、Bloom集合、名詞特徴の群平均だけを持つ派生cacheであり、完全解析の正本には使わない。
+`import`は原文・Doc・語彙情報・出典を保存し、[静的view](../design/usage.md)から索引を作る。正本DBは基底資源を`vocabularies`、各差分世代を`vocabulary_generations`へ一度だけ保存し、`documents`に資源ID・世代ID・文書の語彙状態を保持する。`iter_records()`で全文・語彙情報・全出典をJSONLへ戻せ、基底と各世代のpayloadは初出だけに出力する。配布DBは厳密な述語・実共起群の存在索引、Bloom集合、名詞特徴の群平均を持つ、検査用の派生データである。
 
 用例JSONLと正本DBはschema 4、配布参照は独立したschema 3で、いずれも定めた解析契約と一致する版だけを読み込む。
-
-schema 3の正本は共有語彙資源と文書のLexeme状態を保存しておらず、全情報をそのまま復元できない。旧DBを保全し、原文を固定パイプラインで再抽出してschema 4の正本を別に作り、出典ID・出現ID・URLを引き継いで配布参照を再構築する。現在の`Examples`は旧正本を読み込めず、公開の自動移行APIはない。
-
-新正本には新規解析したDocと同時点の語彙状態を保存し、旧snapshotへ新しい語彙を付加して完全な旧解析と見なさない。旧新のToken・依存関係・lemma・形態・文節などの差は監査として記録し、旧解析との一致を日本語的な正解の条件にしない。v10の投影済み用例からも原解析を復元できないため、原文を再抽出する。

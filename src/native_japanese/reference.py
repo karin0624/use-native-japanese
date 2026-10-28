@@ -134,7 +134,7 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
 
 
 class Reference:
-    """検査時は配布参照だけを読み、原文・全出典・全用例を要求しない。"""
+    """配布参照を読み、用法の登録状況と用例の平均ベクトルを照会する。"""
 
     def __init__(self, reference_path, assets_dir):
         self.assets_dir = Path(assets_dir)

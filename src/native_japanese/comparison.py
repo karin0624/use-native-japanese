@@ -1,4 +1,4 @@
-"""元依存木を変更せず、述語構成と評価辺の参照範囲を静的に定める。"""
+"""元依存木に基づき、述語構成と評価辺の参照範囲を静的に定める。"""
 
 from dataclasses import dataclass, replace
 from functools import cached_property
@@ -25,7 +25,7 @@ from .vocabulary import restore_lexeme_view
 
 @dataclass(frozen=True)
 class UsageStructure:
-    """完全Analysisを参照する用法専用view。固定資源付きの原Docとは区別する。"""
+    """Analysisから用法照合用のDocと比較構造を構築する。"""
 
     analysis: Analysis
 
@@ -64,7 +64,7 @@ def _base(token: Token) -> str:
 
 
 def _lexical_inflection(token: Token) -> bool:
-    """公開された活用情報と詳細品詞を読む。独自の活用判定・原形推論はしない。"""
+    """公開された活用情報・詳細品詞・UPOS・依存関係から語彙述語の活用を判定する。"""
     return (
         bool(token.morph.get("Inflection"))
         and token.tag_.split("-", 1)[0] in _XPOS_PREDICATIVE
@@ -74,7 +74,7 @@ def _lexical_inflection(token: Token) -> bool:
 
 
 def _predicate_roles(doc: Doc) -> tuple[PredicateEvidence, ...]:
-    """UDの文中の働きを認識する。評価する組合せの選択には依存しない。"""
+    """文書全体のUD情報から述語役割の根拠を収集する。"""
     roles = []
 
     def add(selected, observed, kind):

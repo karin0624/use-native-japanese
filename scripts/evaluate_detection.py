@@ -388,7 +388,7 @@ def select_dev(
 
 
 def teacher_corrected(rows):
-    """旧教師dev訂正文を全文完全一致でまとめ、元教師spanは流用しない。"""
+    """教師コーパスのdev訂正文を全文完全一致でまとめ、誤りspanを空にする。"""
     result = {}
     for row in rows:
         if row.get("split") != "dev" or not isinstance(row.get("correction"), str):
@@ -414,7 +414,7 @@ def teacher_corrected(rows):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    prepare = commands.add_parser("prepare-corrected", help="旧教師dev訂正文だけを変換")
+    prepare = commands.add_parser("prepare-corrected", help="教師コーパスのdev訂正文だけを変換")
     prepare.add_argument("--teacher-dev", type=Path, required=True)
     prepare.add_argument("--output", type=Path, required=True)
     select = commands.add_parser("select-dev", help="devのみから比較閾値と評価を保存")

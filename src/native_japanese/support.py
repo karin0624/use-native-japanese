@@ -1,4 +1,4 @@
-"""既存の成分正規化と名詞合成を、固定群の等票平均へ接続する。"""
+"""成分正規化と名詞合成を、固定群の等票平均へ接続する。"""
 
 import math
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ def _checked_vector(value, size, subject):
 
 
 class Vectors:
-    """公開合成APIへlemma列を渡す。独自の表記分割はしない。"""
+    """lemma列を公開合成APIへ渡し、正規化した平均ベクトルを返す。"""
 
     def __init__(self, model):
         self.model = model
@@ -36,7 +36,7 @@ class Vectors:
     def _component(self, noun):
         if not noun:
             raise ValueError("比較する語が空です。解析結果を確認してください。")
-        # FastTextは未知語にもTrueを返すため、既存の文字ngramによる合成を利用できる。
+        # FastTextは未知語にもTrueを返すため、文字ngramによる合成を利用できる。
         if noun not in self.model:
             return None
         vector = _checked_vector(
@@ -88,7 +88,7 @@ def group_mean(nouns, vectors):
 
 
 def direction(x, mean):
-    """同じ固定平均の方向への内積を返す。不能を支持ゼロへ変換しない。"""
+    """固定平均の方向への内積を返し、平均または対象が零ベクトルならNoneを返す。"""
     if x.ndim != 1 or mean.shape != x.shape:
         raise ValueError("用例との比較に使う値の次元数が一致しません。")
     x = _checked_vector(x, x.size, "比較対象の値")
