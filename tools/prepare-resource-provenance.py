@@ -10,8 +10,8 @@ from pathlib import Path
 
 from native_japanese.models import NORMALIZATION_IDENTITY
 
-REFERENCE_BYTES = 135823360
-REFERENCE_SHA256 = "aa24ab9e5fded90f219f539447dca0114e1a427e498a091bb5b5ecf7d9129d88"
+REFERENCE_BYTES = 136867840
+REFERENCE_SHA256 = "6946a5d8c3da168facb328db6b6b5c2dea47accc4907ba3f0bb2448fea839ba3"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
 
@@ -139,15 +139,19 @@ def main() -> None:
                 "referenceTransformation": (
                     "既存の英字開始識別子と連続英数字wordの範囲を、複数tokenに厳密一致する"
                     "場合だけ公開retokenizerで解析前に一tokenへ結合し、単一tokenの公開lemmaは"
-                    "保持する。原文全文・全Docと名詞側の元subtree graphは配布しない構築用正本に"
-                    "保持する。schema 3の配布DBはそこから生成した派生キャッシュ。述語構成は"
-                    "元依存関係aux/cop/mark/fixed/compound/nummodと同文節VERB/ADJ/AUX間の"
-                    "acl/advcl/amodを辿り、lemma・XPOS・Inflection・内部依存方向・相対順・"
-                    "rootを静的な完全一致キーにする。関係は述語接続位置・元辺・向きで"
-                    "完全一致群に分け、P0を含む実在述語の完全一致表をBloom filterより先に確認する。"
-                    "名詞特徴だけは評価辺の名詞側にある句読点・空白以外のlemmaを既存fastTextで"
-                    "合成し、異なる特徴列の300次元ベクトルを等重みで平均する。逆向きacl/amodでは"
-                    "評価する述語の枝を特徴に含めない。構成要素の削除・再結合・述語類似は行わない。"
+                    "保持する。固定本文を現在の明示パイプラインで全件新規解析し、旧キャッシュを再利用しない。"
+                    "原文全文・全Docと名詞側の元subtree graphは配布しないschema 4の構築用正本に"
+                    "保持する。固定Vocab全資源・全累積状態の共有差分世代と文書Lexeme/lookup状態も保存する。"
+                    "schema 3の配布DBはそこから生成した派生キャッシュ。述語構成は"
+                    "元の語形成・補助構成とmark/fixed機能単位の役割を区別して参照し、"
+                    "lemma・XPOS・Inflection・内部依存方向・相対順・rootを静的な完全一致キーにする。"
+                    "述語役割の認識は評価辺の選択から分離し、名詞化節の内部Pと外側の関係を別々に照合する。"
+                    "関係は述語接続位置・役割・向きで群に分け、csubj/nsubjは主語として共有する。"
+                    "ccomp/xcomp/advclと語彙的述語のadvmodも元役割を照会へ渡す。P0を含む実在述語の完全一致表を"
+                    "Bloom filterより先に確認する。名詞特徴だけは元subtree内部のcase/fixedの格標識を"
+                    "別参照とし、逆向き修飾関係の評価P枝、句読点・空白を含めないlemma列を"
+                    "既存fastTextで合成する。異なる特徴列の300次元ベクトルを同じP・接続位置・役割・向きの"
+                    "群内で等重み平均する。非名詞化の述語同士の関係は両P構成・両接続点・役割・向きの実共起を完全一致で照会し、Bloomや平均を使わない。原成分の削除・再結合・述語類似は行わない。"
                 ),
                 "normalizationIdentity": NORMALIZATION_IDENTITY,
             },

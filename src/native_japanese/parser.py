@@ -7,8 +7,15 @@ from importlib.metadata import PackageNotFoundError, version
 import spacy
 from spacy.language import Language
 from spacy.tokens import Doc, Span
+from spacy.util import minibatch
 
 from .models import PARSER_VERSIONS, Analysis
+from .vocabulary import (
+    VocabularyRecorder,
+    VocabularyResources,
+    capture_vocabulary_resources,
+    snapshot_vocabulary,
+)
 
 _IDENTIFIER_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*|[0-9][A-Za-z0-9_]*)"
@@ -55,10 +62,20 @@ def validate_doc(doc: Doc, text: str):
         raise ValueError("原文末尾の非空白文字が解析結果にありません。")
 
 
-def adapt_doc(doc: Doc, text: str) -> Analysis:
+def adapt_doc(
+    doc: Doc,
+    text: str,
+    *,
+    vocabulary_resources: VocabularyResources | None = None,
+    vocabulary_recorder: VocabularyRecorder | None = None,
+) -> Analysis:
     """元Docを変更せず、全情報の不変snapshotを保存する。"""
     validate_doc(doc, text)
-    return Analysis(text, doc.to_bytes())
+    return Analysis(
+        text,
+        doc.to_bytes(),
+        snapshot_vocabulary(doc, vocabulary_resources, recorder=vocabulary_recorder),
+    )
 
 
 class Parser:
@@ -79,6 +96,8 @@ class Parser:
         self._nlp.remove_pipe("compound_splitter")
         self._nlp.add_pipe("compound_splitter", config={"split_mode": "C"}, first=True)
         self._nlp.add_pipe("native_japanese_identifier_merge", after="compound_splitter")
+        self._vocabulary_resources = capture_vocabulary_resources(self._nlp.vocab)
+        self._vocabulary_recorder = VocabularyRecorder(self._vocabulary_resources)
 
     def _require_nlp(self):
         if self._nlp is None:
@@ -86,14 +105,28 @@ class Parser:
         return self._nlp
 
     def analyze(self, text: str) -> Analysis:
-        return adapt_doc(self._require_nlp()(text), text)
+        return adapt_doc(
+            self._require_nlp()(text),
+            text,
+            vocabulary_resources=self._vocabulary_resources,
+            vocabulary_recorder=self._vocabulary_recorder,
+        )
 
     def analyze_many(self, texts: Iterable[str]) -> Iterator[Analysis]:
         """公開nlp.pipeで順序と原文を保ち、参照本文を逐次処理する。"""
         pipeline = self._require_nlp()
-        for doc, text in pipeline.pipe(((text, text) for text in texts), as_tuples=True):
-            yield adapt_doc(doc, text)
+        parsed = pipeline.pipe(((text, text) for text in texts), as_tuples=True, batch_size=32)
+        for batch in minibatch(parsed, size=32):
+            docs, originals = zip(*batch, strict=True)
+            for doc, text in batch:
+                validate_doc(doc, text)
+            snapshots = tuple(doc.to_bytes() for doc in docs)
+            vocabularies = self._vocabulary_recorder.capture_many(docs)
+            for text, snapshot, vocabulary in zip(originals, snapshots, vocabularies, strict=True):
+                yield Analysis(text, snapshot, vocabulary)
 
     def close(self):
         """所有するモデル参照を解放する。"""
         self._nlp = None
+        self._vocabulary_resources = None
+        self._vocabulary_recorder = None

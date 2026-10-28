@@ -39,6 +39,12 @@ def test_full_document_snapshot_is_independent_and_lossless(parser):
     restored = result.restore_doc()
     assert restored.to_bytes() == original
     assert np.array_equal(restored.tensor, doc.tensor)
+    assert restored.vocab.vectors.shape == doc.vocab.vectors.shape
+    for before, after in zip(doc, restored, strict=True):
+        assert np.array_equal(before.vector, after.vector)
+        assert before.has_vector == after.has_vector
+        assert before.vector_norm == after.vector_norm
+        assert before.norm_ == after.norm_
     assert srsly.msgpack_dumps(restored.user_data) == srsly.msgpack_dumps(doc.user_data)
     restored[0].lemma_ = "変更"
     assert result.restore_doc().to_bytes() == original
@@ -77,7 +83,8 @@ def test_nominalized_auxiliary_and_its_original_edges_are_preserved(parser):
     relation = next(row for row in analysis.relations if row.queries[0].dependency == "obj")
     query, view = relation.queries[0], relation.view
     assert [doc[i].text for i in view.noun.nodes] == ["もっとも", "らし", "さ", "を"]
-    assert query.noun == ("もっとも", "らしい", "さ", "を")
+    assert query.noun == ("もっとも", "らしい", "さ")
+    assert view.noun_case_nodes == (5,)
     assert doc[view.noun.root].pos_ == "AUX"
     assert {(3, 2, "advmod"), (3, 4, "mark"), (3, 5, "case")} <= set(view.noun.edges)
     assert relation.argument.text == "もっともらしさを"
@@ -100,9 +107,7 @@ def test_entire_predicate_composition_is_required(parser, text, components):
     assert tuple(node.lemma for node in query.predicate.nodes) == components
     root = query.predicate.nodes[query.predicate.root]
     assert root.head is None and root.dependency is None
-    assert all(
-        row.queries[0].dependency not in {"advcl", "aux", "fixed"} for row in analysis.relations
-    )
+    assert all(row.queries[0].dependency not in {"aux", "fixed"} for row in analysis.relations)
     assert query.predicate != parser.analyze("重複を畳む。").relations[0].queries[0].predicate
 
 
@@ -141,7 +146,7 @@ def test_predicate_only_evidence_does_not_register_ordinary_nouns(parser):
     assert len(bare.predicates) == len(bare.relations) == 1
     assert bare.restore_doc()[0].pos_ == "NOUN"
     evidence = bare.predicates[0].evidence
-    assert evidence[0].kind == "clausal_xpos" and evidence[0].upos == "NOUN"
+    assert any(e.kind == "clausal_xpos" and e.upos == "NOUN" for e in evidence)
     assert bare.relations[0].argument is None
     assert (
         bare.relations[0].queries[0].predicate
@@ -192,8 +197,13 @@ def test_unselected_edges_are_not_reinterpreted_as_argument_or_component(depende
     )
     doc.user_data["bunsetu_bi_labels"] = ["B", "B"]
     analysis = adapt_doc(doc, doc.text)
-    assert analysis.predicates[0].graph.nodes == (1,)
-    assert len(analysis.relations) == 1 and analysis.relations[0].argument is None
+    # UD advclは従属節の述語を指し、NOUNも非動詞述語の核になれる。
+    expected = {(0,), (1,)} if dependency == "advcl" else {(1,)}
+    assert {p.graph.nodes for p in analysis.predicates} == expected
+    if dependency == "advcl":
+        assert {row.queries[0].dependency for row in analysis.relations} == {None, "advcl"}
+    else:
+        assert all(row.argument is None for row in analysis.relations)
     assert analysis.restore_doc()[0].dep_ == dependency
 
 
@@ -302,8 +312,9 @@ def test_repeated_occurrences_keep_separate_original_token_and_character_positio
     ],
 )
 def test_space_and_punctuation_are_preserved_but_not_relation_candidates(words, pos, dependency):
+    # 空白・記号の元Lexeme属性を持つ言語Vocabを使い、UPOSだけ誤った構造対照にする。
     doc = Doc(
-        Vocab(),
+        spacy.blank("ja").vocab,
         words=words,
         spaces=[False] * 2,
         pos=pos,
@@ -370,7 +381,8 @@ def test_issue19_original_paragraph_keeps_full_nominal_argument_and_edges(parser
     view, query = relation.view, relation.queries[0]
     assert view.noun.nodes == tuple(sorted(t.i for t in stem.subtree))
     assert {"もっとも", "らしい", "さ"} <= set(query.noun)
-    assert len(query.noun) == 13
+    assert all(doc[i].dep_ != "case" for i in view.noun_feature_nodes)
+    assert set(view.noun_case_nodes) <= set(view.noun.nodes)
     assert {
         (head, child, dep)
         for head, child, dep in view.noun.edges
@@ -414,3 +426,214 @@ def test_causative_requires_its_own_composition_with_same_argument_relations(
     assert first.predicate.nodes[0].lemma == second.predicate.nodes[0].lemma
     assert predicate_key(first.predicate) != predicate_key(second.predicate)
     assert len(second.predicate.nodes) > len(first.predicate.nodes)
+
+
+@pytest.mark.parametrize("verb", ["走る", "泳ぐ"])
+def test_nominalized_clause_keeps_inner_predicate_and_outer_subject(parser, verb):
+    # UD ja/csubj: 語彙述語が主語節の端点であり、の(mark)・が(case)とは別役割。
+    analysis = parser.analyze(f"{verb}のが好きだ。")
+    predicates = {tuple(n.lemma for n in p.query.predicate.nodes): p for p in analysis.predicates}
+    assert set(predicates) == {(verb,), ("好き", "だ")}
+    inner = predicates[(verb,)]
+    assert any(e.dependency == "csubj" for e in inner.evidence)
+    outer = next(
+        row for row in analysis.relations if row.view and row.view.target_edge[2] == "csubj"
+    )
+    assert outer.predicate.text == "好きだ"
+    assert outer.argument.text == f"{verb}のが"
+    assert outer.queries[0].dependency == "nsubj"
+    assert outer.queries[0].noun == (verb, "の")
+    assert outer.view.noun_case_nodes == (2,)
+    assert outer.view.noun_mark_nodes == (1,)
+    assert outer.view.noun_predicate_roots == (inner.graph.root,)
+    assert any(row.argument is None and row.predicate.text == verb for row in analysis.relations)
+
+
+def test_case_markers_are_preserved_separately_from_the_compared_words(parser):
+    # 比較対象は父と似る。助詞の選択自体は今回の判定対象ではない。
+    first, second = [parser.analyze(text).relations[0] for text in ("父に似る。", "父から似る。")]
+    assert first.queries == second.queries
+    assert first.queries[0].noun == ("父",)
+    assert first.argument.text == "父に" and second.argument.text == "父から"
+    assert first.view.noun_case_nodes == second.view.noun_case_nodes == (1,)
+
+
+@pytest.mark.parametrize(
+    "text,predicate,marker,units",
+    [
+        ("本を読むために走る。", ("読む",), ("ため", "に"), ((3, 4),)),
+        ("本を読むのが好きだ。", ("読む",), ("の",), ((3,),)),
+        ("本を読んでいるのが好きだ。", ("読む", "で", "いる"), ("の",), ((3, 4), (5,))),
+        ("走るという話を聞く。", ("走る",), ("と", "いう"), ()),
+        ("走るとしたら疲れる。", ("走る",), ("と", "する", "た"), ()),
+        ("雨が降るにしても、出かける。", ("降る",), ("に", "する", "て", "も"), ((3, 4, 5, 6),)),
+        ("彼が帰るにつれて、静かになる。", ("帰る",), ("に", "つれる", "て"), ((3, 4, 5),)),
+        ("彼が帰るに従って、静かになる。", ("帰る",), ("に", "従う", "て"), ((3, 4, 5),)),
+        ("走るのではない。", ("走る", "の", "だ", "は", "ない"), ("の",), ((1, 2, 3, 4),)),
+        ("雨が降るので試合は中止。", ("降る", "の", "だ"), ("の", "だ"), ((3, 4),)),
+    ],
+)
+def test_clause_markers_do_not_replace_predicate_construction(
+    parser, text, predicate, marker, units
+):
+    # Pへの参照範囲と元mark/fixedの機能単位は別の契約で、所属を語の意味と同一視しない。
+    analysis = parser.analyze(text)
+    occurrence = next(p for p in analysis.predicates if p.graph.root == 2 or p.graph.root == 0)
+    assert tuple(n.lemma for n in occurrence.query.predicate.nodes) == predicate
+    doc = analysis.restore_doc()
+    assert all(word in {t.lemma_ for t in doc} for word in marker)
+    assert tuple(unit.nodes for unit in occurrence.marker_units) == units
+    assert tuple(unit.root for unit in occurrence.marker_units) == tuple(
+        nodes[0] for nodes in units
+    )
+    for unit in occurrence.marker_units:
+        assert doc[unit.root].dep_ == "mark"
+        assert all(doc[i].dep_ == "fixed" for i in unit.nodes if i != unit.root)
+
+
+@pytest.mark.parametrize("text", ["読むのは楽しい。", "走るのを覚える。", "本を読むために走る。"])
+def test_clause_modifier_keeps_outer_relation_without_relabeling(parser, text):
+    # GiNZAのadvclを主語等へ推測し直さず、節修飾として外側の組合せを検査する。
+    analysis = parser.analyze(text)
+    outer = next(
+        row for row in analysis.relations if row.view and row.view.target_edge[2] == "advcl"
+    )
+    assert outer.queries[0].dependency == "advcl"
+    inner = next(p for p in analysis.predicates if p.graph.root == outer.view.noun.root)
+    assert inner.graph.root != outer.view.predicate.root
+    assert any(row.predicate_root == inner.graph.root for row in analysis.relations)
+
+
+def test_noun_root_external_case_role_does_not_remove_its_lexical_identity():
+    # 「行う際」の際が別句へcase接続しても、このaclの修飾対象としてはNの語彙核である。
+    doc = Doc(
+        Vocab(),
+        words=["行う", "際", "使う"],
+        spaces=[False] * 3,
+        heads=[1, 2, 2],
+        deps=["acl", "case", "ROOT"],
+        pos=["VERB", "NOUN", "VERB"],
+        tags=["動詞-一般", "名詞-普通名詞-副詞可能", "動詞-一般"],
+        lemmas=["行う", "際", "使う"],
+    )
+    doc.user_data["bunsetu_bi_labels"] = ["B"] * 3
+    analysis = adapt_doc(doc, doc.text)
+    relation = next(row for row in analysis.relations if row.view)
+    assert relation.queries[0].noun == ("際",)
+    assert relation.view.noun_case_nodes == ()
+    assert analysis.restore_doc()[1].dep_ == "case"
+
+
+def test_adverbial_lexical_predicate_keeps_both_occurrences_and_external_connection(parser):
+    # 文脈上のVERBがadvmod修飾を担う場合も、活用形や語別の規則を作らず照合へ渡す。
+    analysis = parser.analyze("彼は走ろうとする。")
+    assert {tuple(n.lemma for n in p.query.predicate.nodes) for p in analysis.predicates} == {
+        ("走る",),
+        ("する",),
+    }
+    outer = next(row for row in analysis.relations if row.queries[0].dependency == "advmod")
+    assert outer.predicate.text == "する"
+    assert outer.argument.text == "走ろうと"
+    assert outer.queries[0].noun == ()
+    assert tuple(n.lemma for n in outer.queries[0].related_predicate.nodes) == ("走る",)
+    assert outer.queries[0].related_attachment == 0
+    assert outer.view.target_edge == (4, 2, "advmod")
+    assert any(
+        row.predicate.text == "走ろう" and row.argument is None for row in analysis.relations
+    )
+
+
+@pytest.mark.parametrize(
+    "upos,xpos,expected",
+    [
+        ("VERB", "動詞-一般", True),
+        ("ADJ", "形容詞-一般", True),
+        ("ADV", "形状詞-一般", False),
+        ("SCONJ", "動詞-一般", False),
+    ],
+)
+def test_adverbial_role_uses_contextual_pos_and_does_not_promote_nominal_head(upos, xpos, expected):
+    doc = Doc(
+        Vocab(),
+        words=["M", "N"],
+        spaces=[False] * 2,
+        heads=[1, 1],
+        deps=["advmod", "ROOT"],
+        pos=[upos, "NOUN"],
+        tags=[xpos, "名詞-普通名詞-一般"],
+        lemmas=["M", "N"],
+    )
+    doc.user_data["bunsetu_bi_labels"] = ["B", "B"]
+    analysis = adapt_doc(doc, doc.text)
+    assert bool(analysis.predicates) is expected
+    if expected:
+        assert len(analysis.predicates) == len(analysis.relations) == 1
+        row = analysis.relations[0]
+        assert row.queries[0].noun_role == "head" and row.queries[0].noun == ("N",)
+        assert row.view.predicate.root == 0 and row.view.noun.root == 1
+
+
+@pytest.mark.parametrize("word,upos", [("読もう", "NOUN"), ("寝よう", "PROPN")])
+def test_inflected_lexical_occurrence_is_not_lost_under_nominal_upos(parser, word, upos):
+    analysis = parser.analyze(f"彼は{word}とする。")
+    doc = analysis.restore_doc()
+    token = next(t for t in doc if t.text == word)
+    assert token.pos_ == upos and token.dep_ == "obl"
+    assert token.tag_ == "動詞-一般" and token.morph.get("Inflection")
+    inner = next(p for p in analysis.predicates if token.i in p.graph.nodes)
+    assert any(e.kind == "inflected_lexical_occurrence" for e in inner.evidence)
+    outer = next(row for row in analysis.relations if row.queries[0].dependency == "obl")
+    assert outer.queries[0].noun == ()
+    assert outer.queries[0].related_predicate == inner.query.predicate
+    assert outer.view.target_edge == (4, 2, "obl")
+    assert analysis.restore_doc()[token.i].pos_ == upos
+
+
+def test_inflected_word_with_unspecified_connection_is_checked_without_inventing_an_edge(parser):
+    analysis = parser.analyze("彼は飛ぼうとする。")
+    doc = analysis.restore_doc()
+    token = next(t for t in doc if t.text == "飛ぼう")
+    assert token.dep_ == "dep" and token.head.text == "彼"
+    inner = next(row for row in analysis.relations if row.predicate.text == "飛ぼう")
+    assert inner.argument is None and inner.queries[0].dependency is None
+    assert not any(row.view and row.view.target_edge[1] == token.i for row in analysis.relations)
+
+
+def test_non_nominal_adverbial_modifier_target_is_not_compared_as_a_noun():
+    doc = Doc(
+        Vocab(),
+        words=["P", "A"],
+        spaces=[False] * 2,
+        heads=[1, 1],
+        deps=["advmod", "ROOT"],
+        pos=["VERB", "ADV"],
+        tags=["動詞-一般", "副詞"],
+        lemmas=["P", "A"],
+    )
+    doc.user_data["bunsetu_bi_labels"] = ["B", "B"]
+    analysis = adapt_doc(doc, doc.text)
+    assert analysis.relations[0].argument is None
+    assert analysis.comparison.targets[0].scope == "non_nominal_modifier"
+    assert analysis.usage_structure.analysis is analysis
+    assert analysis.restore_doc()[0].dep_ == "advmod"
+
+
+def test_parser_keeps_merged_vectors_and_prior_vocabulary_outside_current_document():
+    instance = Parser()
+    try:
+        first = instance.analyze("1600rpmで回る。")
+        earlier = first.restore_doc().vocab.get_vector("1600rpm").copy()
+        later = instance.analyze("本を読む。")
+        assert later.vocabulary.generation.parent is first.vocabulary.generation
+        source = instance._require_nlp().vocab
+        restored = later.restore_doc()
+        assert restored.vocab.vectors.shape == source.vectors.shape
+        assert restored.vocab.vectors.key2row == source.vectors.key2row
+        assert np.array_equal(restored.vocab.vectors.data, source.vectors.data)
+        assert tuple(restored.vocab.strings) == tuple(source.strings)
+        assert restored.vocab["1600rpm"].has_vector
+        assert np.array_equal(restored.vocab.get_vector("1600rpm"), earlier)
+        restored.vocab.set_vector("1600rpm", np.zeros_like(earlier))
+        assert np.array_equal(later.restore_doc().vocab.get_vector("1600rpm"), earlier)
+    finally:
+        instance.close()

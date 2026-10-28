@@ -39,46 +39,21 @@ class LintResult:
     diagnostics: tuple[Diagnostic, ...]
 
 
-class Inspector:
-    """同じ解析器と参照を再利用する検査API。位置はPython文字添字。"""
+@dataclass(frozen=True)
+class JudgeResult:
+    relations: tuple[RelationAssessment, ...] = ()
+    diagnostics: tuple[Diagnostic, ...] = ()
 
-    def __init__(
-        self,
-        reference_path: str | Path,
-        assets_dir: str | Path,
-        threshold: float = 0.35,
-    ):
-        if not math.isfinite(threshold) or not -1 <= threshold <= 1:
-            raise ValueError(
-                "thresholdには-1以上1以下の数値を指定してください。NaNや無限大は使えません。"
-            )
+
+class UsageJudge:
+    """完全解析を受け取り、用法照合だけの局所viewと参照照会を行う。"""
+
+    def __init__(self, reference: Reference, threshold: float):
+        self.reference = reference
         self.threshold = threshold
-        self._stack = ExitStack()
-        try:
-            self.reference = self._stack.enter_context(Reference(reference_path, assets_dir))
-            self.parser = Parser()
-            self._stack.callback(self.parser.close)
-        except BaseException:
-            self._stack.close()
-            raise
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        self.close()
-
-    def close(self):
-        self._stack.close()
-
-    def analyze(self, text: str) -> Analysis:
-        return self.parser.analyze(text)
-
-    def lint(self, text: str) -> LintResult:
-        analysis = self.analyze(text)
-        return self._assess(analysis)
-
-    def _assess(self, analysis: Analysis) -> LintResult:
+    def assess(self, analysis: Analysis) -> JudgeResult:
+        analysis.validate_comparison()
         assessments = []
         diagnostics = []
         for relation in analysis.relations:
@@ -111,7 +86,56 @@ class Inspector:
             else:
                 status = "supported"
             assessments.append(RelationAssessment(relation, status, score, tuple(queries)))
-        return LintResult(analysis, tuple(assessments), tuple(diagnostics))
+        return JudgeResult(tuple(assessments), tuple(diagnostics))
+
+
+class Inspector:
+    """同じ解析器と参照を再利用する検査API。位置はPython文字添字。"""
+
+    def __init__(
+        self,
+        reference_path: str | Path,
+        assets_dir: str | Path,
+        threshold: float = 0.35,
+    ):
+        if not math.isfinite(threshold) or not -1 <= threshold <= 1:
+            raise ValueError(
+                "thresholdには-1以上1以下の数値を指定してください。NaNや無限大は使えません。"
+            )
+        self.threshold = threshold
+        self._stack = ExitStack()
+        try:
+            reference = self._stack.enter_context(Reference(reference_path, assets_dir))
+            self.judges = (UsageJudge(reference, threshold),)
+            self.parser = Parser()
+            self._stack.callback(self.parser.close)
+        except BaseException:
+            self._stack.close()
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    def close(self):
+        self._stack.close()
+
+    def analyze(self, text: str) -> Analysis:
+        return self.parser.analyze(text)
+
+    def lint(self, text: str) -> LintResult:
+        analysis = self.analyze(text)
+        return self._assess(analysis)
+
+    def _assess(self, analysis: Analysis) -> LintResult:
+        results = tuple(judge.assess(analysis) for judge in self.judges)
+        return LintResult(
+            analysis,
+            tuple(row for result in results for row in result.relations),
+            tuple(row for result in results for row in result.diagnostics),
+        )
 
     def lint_many(self, texts: Iterable[str]) -> tuple[LintResult, ...]:
         return tuple(self._assess(analysis) for analysis in self.parser.analyze_many(texts))

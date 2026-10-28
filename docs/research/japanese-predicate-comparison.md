@@ -15,6 +15,8 @@
 | 東京外国語大学言語モジュール[「Vこと・Vの」第2項](https://www.coelang.tufs.ac.jp/mt/ja/gmod/contents/explanation/080.html) | 動詞を受ける名詞化の説明（掲載版） | 「こと」「の」が動詞を受け、全体が名詞として機能する | 名詞として働くまとまりの内部にある動詞・述語を消してよいという説明ではない |
 | 国際交流基金[「日本語の態（Voice）について考える（1）」2024年7月、§3–4](https://www.jpf.go.jp/j/project/japanese/teach/tsushin/language/202407.html)、[みんなの教材サイト・使役「先生へ」](https://www.kyozai.jpf.go.jp/kyozai/material/BMA00075/ja/render.do) | 受身・使役の構造と指導上の分類 | 受身では目的語が主語の位置へ移り、使役では動作主の文の上に使役主が加わる。一方、使役形を動詞の活用形の一つと呼ぶ説明もある | 「活用」という名称だけでは、構成や名詞の役割をまたいで用例を共有できる範囲は決まらない |
 | 国立国語研究所[NPCMJアノテーションマニュアル、2020年5月1日版](https://www2.ninjal.ac.jp/npcmj/wp-content/uploads/2020/05/npcmj_annotation_manual_jp_20200501.pdf)、§4 p.13、§9.1 p.32、§15 p.136、§15.13 p.168 | コーパスの構文アノテーション規約 | 述語とその核、述語の拡張を区別する。助詞の形だけでは項の主要な役割を判断できない。「好きだ」などでは経験者をSBJ、好悪の対象をOB1とする | 特定のコーパスの分析体系であり、学校文法・学習文法と用語や境界が一致するとは限らない |
+| [UD日本語のcsubj](https://universaldependencies.org/ja/dep/csubj.html)、[aux](https://universaldependencies.org/ja/dep/aux_.html)・[cop](https://universaldependencies.org/ja/dep/cop.html)・[compound](https://universaldependencies.org/ja/dep/compound.html)・[fixed](https://universaldependencies.org/ja/dep/fixed.html)（UD v2掲載版） | 依存辺による語彙述語、機能語、名詞化された主語節の表現 | 主語節の語彙述語がcsubj端点で、のはmark、格標識はcase。非動詞述語の核は名詞や形容詞になり、compoundは名詞・動詞複合、fixedは一つの機能表現を表す | 元head・一つの品詞・一つの辺ラベルだけでは、述語全体の境界や節標識との区別は確定しない |
+| [GiNZA文節API](https://megagonlabs.github.io/ginza/bunsetu_api.html)（5.3.0） | 元Token・文節・主辞Spanを参照し、文脈中のUPOS・詳細品詞・依存構造を利用 | 同じXPOSの動詞でも機能表現ではUPOSがSCONJになり得る。元構造と比較処理の参照範囲を分けられる | 文節主辞を全て述語とは認められず、experimentalな節APIも述語の完全な一覧を保証しない |
 | 東北大学[「脳の『かたち』は父に似るのか母に似るのか？」](https://www.life.med.tohoku.ac.jp/newsroom/press/34709/) | 医学研究の広報記事（掲載版）の題名 | 「父」と「似る」が組み合わされた直接用例を確認できる | 医学研究の内容は日本語文法の原理の根拠ではない |
 
 ## 結論
