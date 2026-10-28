@@ -46,7 +46,7 @@ def contract():
         "vector": vector_identity(),
         "dimension": DIMENSION,
         "dtype": "<f8",
-        "group": "exact-predicate-attachment-relation-noun-feature-mean-v2",
+        "group": "exact-predicate-pair-or-noun-role-mean-v3",
     }
 
 
@@ -85,13 +85,19 @@ def build_reference(examples_path, output_path, assets_dir) -> dict:
                 predicates += 1
             groups = comparable = 0
             for key, queries in itertools.groupby(examples.iter_usages(), key=group_key):
+                first = next(queries)
+                queries = itertools.chain((first,), queries)
 
                 def nouns():
                     for query in queries:
                         builder.add(query_key(query))
                         yield query.noun
 
-                mean, count, total = group_mean(nouns(), vectors)
+                if first.related_predicate is not None:
+                    total = sum(1 for _ in nouns())
+                    mean, count = None, 0
+                else:
+                    mean, count, total = group_mean(nouns(), vectors)
                 blob = mean.astype("<f8").tobytes() if mean is not None else None
                 db.execute("INSERT INTO groups VALUES (?,?,?,?)", (key, blob, count, total))
                 groups += 1
@@ -205,6 +211,11 @@ class Reference:
             query = parse_query_key(key, group=True)
             if predicate_key(query.predicate) not in predicates:
                 raise ValueError("関係群に対応する厳密な述語用例がありません。")
+            if query.related_predicate is not None:
+                if predicate_key(query.related_predicate) not in predicates:
+                    raise ValueError("関係群の第二述語に対応する厳密な用例がありません。")
+                if mean is not None or count != 0:
+                    raise ValueError("述語同士の関係群に名詞類似のデータがあります。")
             groups += 1
             total += size
             comparable += count
@@ -267,11 +278,22 @@ class Reference:
             return Support(False, None, evidence)
         if query.dependency is None:
             return Support(True, None, evidence)
+        if (
+            query.related_predicate is not None
+            and self.connection.execute(
+                "SELECT 1 FROM predicates WHERE key=?", (predicate_key(query.related_predicate),)
+            ).fetchone()
+            is None
+        ):
+            return Support(False, None, evidence)
         row = self.connection.execute(
             "SELECT mean,comparable,total FROM groups WHERE key=?", (group_key(query),)
         ).fetchone()
         if row is None:
             return Support(False, None, evidence)
+        if query.related_predicate is not None:
+            # 両P構成・両接続点・役割・向きが同じ実共起。Bloom/名詞類似は使わない。
+            return Support(True, None, evidence)
         if membership.contains(self.membership, query_key(query)):
             return Support(True, None, evidence)
         blob, comparable, total = row

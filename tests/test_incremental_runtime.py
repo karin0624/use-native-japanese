@@ -21,6 +21,9 @@ class StubAnalysis:
     text: str
     relations: tuple[Relation, ...]
 
+    def validate_comparison(self):
+        pass
+
 
 QUERY = Query(
     PredicateGraph(0, (PredicateNode("畳む", "動詞-一般", (), None, None),)),
@@ -84,11 +87,11 @@ def test_indexed_candidates_suppress_warning_without_claiming_direct_observation
         result = instance.lint(TEXT)
         assert result.diagnostics == ()
         assert result.relations[0].status == "indexed"
-        assert instance.reference.calls == [QUERY, ALTERNATE]
+        assert instance.judges[0].reference.calls == [QUERY, ALTERNATE]
         encoded = cli.result_json(result)
         assert encoded["relations"][0]["queries"][1]["support"]["indexed"]
         assert "observed" not in json.dumps(encoded)
-    assert instance.parser.closed and instance.reference.closed
+    assert instance.parser.closed and instance.judges[0].reference.closed
 
 
 def test_no_support_reports_usage_error_at_discontinuous_utf16_ranges(monkeypatch):
@@ -128,7 +131,7 @@ def test_all_comparable_candidates_use_greatest_support(monkeypatch):
         result = instance.lint(TEXT)
         assert result.diagnostics == ()
         assert result.relations[0].score == 0.4
-        assert instance.reference.calls == [QUERY, ALTERNATE]
+        assert instance.judges[0].reference.calls == [QUERY, ALTERNATE]
 
 
 @pytest.mark.parametrize("score", [float("nan"), float("inf"), -float("inf")])
@@ -180,7 +183,7 @@ def test_serve_reports_no_usage_and_preserves_real_vector_failure(
     ]
     monkeypatch.setattr(cli.sys, "stdin", io.StringIO("\n".join(map(json.dumps, requests))))
     with instance, reference.Reference(output, assets) as runtime:
-        instance.reference = runtime
+        instance.judges[0].reference = runtime
         cli.serve(instance)
     shortage, failure = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "error" not in shortage
@@ -201,7 +204,7 @@ def test_generalization_support_and_vectorless_usage_addition(setup_reference, m
     analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=(probe,)),))
     with inspector(monkeypatch, analysis=analysis) as instance:
         with reference.Reference(output, assets) as runtime:
-            instance.reference = runtime
+            instance.judges[0].reference = runtime
             result = instance.lint(TEXT)
             assert result.diagnostics == ()
             assert result.relations[0].status == "supported"
@@ -211,7 +214,7 @@ def test_generalization_support_and_vectorless_usage_addition(setup_reference, m
     analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=(probe,)),))
     with inspector(monkeypatch, analysis=analysis) as instance:
         with reference.Reference(output, assets) as runtime:
-            instance.reference = runtime
+            instance.judges[0].reference = runtime
             before = instance.lint(TEXT)
             assert before.diagnostics
             assert before.relations[0].score is None
@@ -219,7 +222,7 @@ def test_generalization_support_and_vectorless_usage_addition(setup_reference, m
             examples.import_jsonl(lines(record(probe)))
         reference.build_reference(source, output, assets)
         with reference.Reference(output, assets) as runtime:
-            instance.reference = runtime
+            instance.judges[0].reference = runtime
             after = instance.lint(TEXT)
             assert after.diagnostics == ()
             assert after.relations[0].status == "indexed"
@@ -318,7 +321,7 @@ def test_cli_extract_import_preserves_source_and_new_analysis_contract(
     extracted = capsys.readouterr().out
     record = json.loads(extracted)
     assert record["text"] == make_analysis(QUERY).text
-    assert record["schema_version"] == 3
+    assert record["schema_version"] == 4
     assert record["doc_base64"]
     assert record["source_id"] == "出典"
     assert record["source_url"] == "https://example.test/source"
