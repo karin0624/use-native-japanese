@@ -11,37 +11,27 @@ const formats = ["yaml", "toml", { type: "json", fence: { open: ";;;", close: ";
     { type: "json", fence: { open: "{", close: "}" } }];
 const location = point => ({ line: point.line, column: point.column - 1 });
 
-function textNode(text, span) {
-    return { type: "Str", value: span.value, raw: text.slice(span.start.offset, span.end.offset),
-        range: [span.start.offset, span.end.offset],
-        loc: { start: location(span.start), end: location(span.end) }, sourceAtomic: span.atomic };
-}
-
 function paragraphs(node, spans, text) {
     const result = [];
-    let children = [];
+    let children = [], plain = "", starts = [], ends = [];
     const flush = () => {
-        if (children.length && children.some(child => child.value.trim())) {
+        if (plain.trim()) {
             const first = children[0], last = children.at(-1);
-            const starts = [], ends = [];
-            for (const child of children) {
-                for (let i = 0; i < child.value.length; i++) {
-                    starts.push(child.range[0] + (child.sourceAtomic ? 0 : i));
-                    ends.push(child.sourceAtomic ? child.range[1] : child.range[0] + i + 1);
-                }
-            }
             result.push({ type: node.type === "heading" ? "Header" : "Paragraph", depth: node.depth,
                 raw: text.slice(first.range[0], last.range[1]), range: [first.range[0], last.range[1]],
                 loc: { start: first.loc.start, end: last.loc.end }, children,
-                text: children.map(child => child.value).join(""), starts, ends });
+                text: plain, starts, ends });
         }
         children = [];
+        plain = "";
+        starts = [];
+        ends = [];
     };
     const visit = child => {
         if (["emphasis", "strong", "delete", "link", "linkReference"].includes(child.type)) {
             child.children.forEach(visit);
         } else if (["text", "inlineCode", "break"].includes(child.type)) {
-            const values = [];
+            const leafStart = plain.length;
             for (const span of spans.get(child) ?? []) {
                 // compilerが確定した葉の範囲と交差させ、本文に含まれる部分だけを接続する。
                 const start = span.start.offset < child.position.start.offset ? child.position.start : span.start;
@@ -52,10 +42,15 @@ function paragraphs(node, spans, text) {
                     throw new Error("native-japanese: 本文の文字と原文範囲を対応付けられません。");
                 }
                 const value = span.atomic ? span.value : span.value.slice(start.offset - span.start.offset, end.offset - span.start.offset);
-                values.push(value);
-                children.push(textNode(text, { ...span, start, end, value }));
+                plain += value;
+                for (let i = 0; i < value.length; i++) {
+                    starts.push(start.offset + (span.atomic ? 0 : i));
+                    ends.push(span.atomic ? end.offset : start.offset + i + 1);
+                }
+                children.push({ type: "Str", value, raw: text.slice(start.offset, end.offset),
+                    range: [start.offset, end.offset], loc: { start: location(start), end: location(end) } });
             }
-            if (child.value !== undefined && values.join("") !== child.value) {
+            if (child.value !== undefined && plain.slice(leafStart) !== child.value) {
                 throw new Error("native-japanese: parserの本文と位置情報が一致しません。");
             }
         } else {
@@ -109,9 +104,8 @@ export function parseMarkdown(input) {
 }
 
 export class Processor {
-    constructor(options = {}) { this.extensions = options.extensions ?? []; }
     availableExtensions() {
-        return [".md", ".markdown", ".mdown", ".mkdn", ".mkd", ".mdwn", ".mkdown", ".ron", ...this.extensions];
+        return [".md", ".markdown", ".mdown", ".mkdn", ".mkd", ".mdwn", ".mkdown", ".ron"];
     }
     processor() {
         return { preProcess: parseMarkdown, postProcess: (messages, filePath) => ({ messages, filePath: filePath ?? "<markdown>" }) };

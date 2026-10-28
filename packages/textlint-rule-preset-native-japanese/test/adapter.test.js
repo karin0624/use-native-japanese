@@ -119,6 +119,25 @@ test("同じ文字を含む入れ子装飾でも該当する葉の位置を使�
     assert.equal(messages[0].range[1], text.indexOf("。"));
 });
 
+test("引用prefixと同じ本文文字でも本文側のescape全体を指摘する", async t => {
+    // escapeへの指摘はbackslashも含める。引用記号との文字列の類似は位置の根拠にしない。
+    const { linter, log } = await setup(t, {}, ["--diagnostic-ranges", JSON.stringify([[2, 3], [3, 4]])]);
+    const text = "> A\n> \\>B";
+    const { messages } = await linter.lintText(text, "引用.md");
+    assert.deepEqual(messages.map(message => [message.range, message.line, message.column]), [
+        [[6, 8], 2, 3], [[8, 9], 2, 5]
+    ]);
+    assert.deepEqual((await log())[0].texts, ["A\n>B"]);
+});
+
+test("escape文字への部分指摘はescape全体へ戻し、code内の同じ文字は字義位置へ戻す", async t => {
+    const { linter, log } = await setup(t, {}, ["--diagnostic-ranges", JSON.stringify([[0, 1]])]);
+    for (const [text, range] of [["\\*B", [0, 2]], ["`*`B", [1, 2]]]) {
+        assert.deepEqual((await linter.lintText(text, "記号.md")).messages.map(message => message.range), [range]);
+    }
+    assert.deepEqual((await log()).map(request => request.texts), [["*B"], ["*B"]]);
+});
+
 test("Markdownとテキストの単改行を同じ本文で送り、空行と見出しで分ける", async t => {
     const { linter, log } = await setup(t);
     const text = "前文。\n🍣 雲を食べる。\n\n後文。";
