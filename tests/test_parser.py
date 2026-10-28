@@ -450,7 +450,7 @@ def test_nominalized_clause_keeps_inner_predicate_and_outer_subject(parser, verb
 
 
 def test_case_markers_are_preserved_separately_from_the_compared_words(parser):
-    # 比較対象は父と似る。助詞の選択自体は今回の判定対象ではない。
+    # 比較対象は「父」と「似る」の組合せ。
     first, second = [parser.analyze(text).relations[0] for text in ("父に似る。", "父から似る。")]
     assert first.queries == second.queries
     assert first.queries[0].noun == ("父",)

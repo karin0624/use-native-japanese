@@ -3,7 +3,7 @@ import { extname } from "node:path";
 import { parse, preprocess, postprocess } from "micromark";
 import { configuration, getWorker } from "./worker.js";
 
-// 文書全体を解析し、引用・リストの継続行も既存parserの位置情報で扱う。
+// 文書全体を解析し、引用・リストの継続行もparserの位置情報で扱う。
 function inlineSources(text) {
     const events = postprocess(parse().document().write(preprocess()(text, undefined, true)));
     const spans = new Map();

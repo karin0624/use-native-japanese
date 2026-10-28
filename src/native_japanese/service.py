@@ -46,7 +46,7 @@ class JudgeResult:
 
 
 class UsageJudge:
-    """完全解析を受け取り、用法照合だけの局所viewと参照照会を行う。"""
+    """解析を受け取り、用法照合だけの局所viewと参照照会を行う。"""
 
     def __init__(self, reference: Reference, threshold: float):
         self.reference = reference

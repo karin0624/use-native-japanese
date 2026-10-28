@@ -194,7 +194,7 @@ def supplementary_corrected(
 
 
 def audit_near(auxiliary, evaluation):
-    """既存文字TF-IDFで近似だけ監査。追加除外や閾値調整は行わない。"""
+    """文字TF-IDFで近似を監査し、最近傍の類似度と監査表示用の件数を返す。"""
     if not auxiliary or not evaluation:
         return {"available": False}
     texts = [r["text"] for r in auxiliary] + [r["text"] for r in evaluation]
@@ -395,7 +395,7 @@ def run(source_dir, teacher_dir, output_dir):
         "annotation_policy": "同一offsetの原ラベルをunion。非空spanのlexicalは公式第3章L/＊L、gapのlexicalは欠落対象も含む第3章カテゴリ。gapを近隣語のIへ拡張しない。",
         "limitations": [
             "原ラベルは語彙章全般で、連語専用・AI生成文専用のgoldではない。",
-            "元の広い範囲を変更しておらず、厳密な誤語境界精度とは限らない。",
+            "原注釈の範囲は広く、厳密な誤語境界精度とは限らない。",
             "未解決/全文誤りを除いたため、原資料全体の代表性を保証しない。",
             "補助訂正文は完全な正用goldではなく、C/Iタグも新規alignmentも付けない。",
             "補助訂正文と寺村dev/testの全文一致なしだけを保証。近似文は別auditで報告し除外していない。",

@@ -280,7 +280,7 @@ def convert_record(source_line, raw_line, fields, page, category):
 
 
 def candidate_groups(rows):
-    """完全一致入力と同じ出典参照を既存の連結成分APIでまとめる。分割はしない。"""
+    """完全一致入力または同じ出典参照を持つ行を連結成分APIでまとめ、group候補を付与する。"""
     import scipy
     from scipy.sparse import csr_matrix
     from scipy.sparse.csgraph import connected_components

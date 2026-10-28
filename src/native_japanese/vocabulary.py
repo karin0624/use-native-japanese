@@ -365,7 +365,7 @@ def _restore_lookups(vocab: Vocab, data: bytes, resources: VocabularyResources) 
 def _restore_document_state(vocab: Vocab, snapshot: VocabularySnapshot) -> Vocab:
     resources = snapshot.resources
     vocab.cfg.update(dict(resources.config))
-    # prob/sentiment/clusterはLexemeCではなくLookupsへ格納される。
+    # prob/sentiment/clusterはLookupsへ格納される。
     vocab.from_bytes(
         srsly.msgpack_dumps({"lookups": snapshot.lookups}), exclude=("strings", "vectors")
     )
@@ -539,7 +539,7 @@ class VocabularyRecorder:
         self._source = source
         if len(source.strings) < len(previous.strings):
             raise ValueError("固定解析器のStringStoreから文字列が除去されています。")
-        # 固定spaCyのStringStore.addは末尾へ追加する。過去文由来の追加分も全て読む。
+        # 固定spaCyのStringStore.addは末尾へ追加する。解析済みの他文書に由来する追加分も全て読む。
         strings = (
             tuple(islice(source.strings, len(previous.strings), None))
             if len(source.strings) != len(previous.strings) else ()

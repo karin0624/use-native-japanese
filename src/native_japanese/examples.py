@@ -41,7 +41,7 @@ FIELDS = {
     "vocabulary_generation_base64",
     *SOURCE_FIELDS,
 }
-_REEXTRACT = "旧形式や異なる解析契約の用例は原文から再抽出してください。"
+_REEXTRACT = "原文から、この解析器の文書形式と解析契約に従って用例を再抽出してください。"
 
 
 def canonical(value) -> str:
@@ -185,7 +185,7 @@ def parse_query_key(key: str, *, group=False) -> Query:
 
 def validate_record(record: object) -> dict:
     if not isinstance(record, dict) or set(record) != FIELDS:
-        raise ValueError("完全な原解析を持つ文書JSONLが必要です。" + _REEXTRACT)
+        raise ValueError("原解析と語彙資源を持つ文書JSONLが必要です。" + _REEXTRACT)
     if (
         type(record["schema_version"]) is not int
         or record["schema_version"] != SCHEMA_VERSION
@@ -347,7 +347,7 @@ def extract_records(
 
 
 class Examples:
-    """文書の完全正本・全出典と、再構築可能な用法索引を保持する。"""
+    """文書の正本・全出典と、再構築可能な用法索引を保持する。"""
 
     def __init__(self, path: str | Path, *, writable: bool = False):
         self.writable = writable
@@ -400,7 +400,7 @@ class Examples:
             self.connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
             self.connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         elif application != APPLICATION_ID or version != SCHEMA_VERSION:
-            raise ValueError("完全正本DBの種類または版が一致しません。" + _REEXTRACT)
+            raise ValueError("正本DBの種類または版が一致しません。" + _REEXTRACT)
         self.connection.execute("SELECT id,text,snapshot FROM documents LIMIT 0")
         self.connection.execute("SELECT key FROM predicates LIMIT 0")
         self.connection.execute("SELECT key,group_key,noun FROM usages LIMIT 0")

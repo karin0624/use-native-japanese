@@ -23,7 +23,7 @@ _IDENTIFIER_PATTERN = re.compile(
 
 
 def _identifier_spans(doc: Doc) -> tuple[Span, ...]:
-    # 連続英数字wordと既存の英字開始識別子を保ち、数字間の記号結合は増やさない。
+    # 英字開始識別子と、数字開始の連続英数字・下線を結合する。
     # 原文の部分tokenは拡張せず、一tokenの公開lemmaも保持する。
     spans = []
     for match in _IDENTIFIER_PATTERN.finditer(doc.text):
@@ -43,7 +43,7 @@ def _merge_identifiers(doc: Doc) -> Doc:
 
 
 def validate_doc(doc: Doc, text: str):
-    """原文と公開Tokenの全位置を照合する。語や辺を補完・除去しない。"""
+    """原文と公開Tokenの文字列・全位置・空白を照合する。"""
     if doc.text != text or "".join(token.text_with_ws for token in doc) != text:
         raise ValueError("解析結果が原文全文を保持していません。")
     cursor = 0
@@ -69,7 +69,7 @@ def adapt_doc(
     vocabulary_resources: VocabularyResources | None = None,
     vocabulary_recorder: VocabularyRecorder | None = None,
 ) -> Analysis:
-    """元Docを変更せず、全情報の不変snapshotを保存する。"""
+    """元Docの全情報を不変snapshotへ保存する。"""
     validate_doc(doc, text)
     return Analysis(
         text,
