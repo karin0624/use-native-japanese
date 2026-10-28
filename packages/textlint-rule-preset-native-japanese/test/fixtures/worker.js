@@ -20,6 +20,11 @@ createInterface({ input: process.stdin }).on("line", line => {
         range: [match.index, match.index + match[0].length],
         message: "人工fixtureの指摘", suggestions: ["ご飯を食べる"]
     })) }));
+    if (process.argv[3] === "--diagnostic-ranges") {
+        for (const result of results) {
+            result.diagnostics = JSON.parse(process.argv[4]).map(range => ({ range, message: "人工fixtureの範囲指摘" }));
+        }
+    }
     if (process.argv[3] === "--clear-diagnostics-after-first-request" && requestCount > 1) {
         for (const result of results) result.diagnostics = [];
     }

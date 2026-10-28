@@ -42,6 +42,34 @@ test("強調・リンクを跨いで一括送信し、見出しと絵文字の�
     assert.deepEqual(requests[0].texts, ["🍣 雲を食べる", "前文。\n🍣 雲を食べる。"]);
 });
 
+test("取り消し線・自動リンク・タスクリストの本文を保持し、原文位置へ戻す", async t => {
+    // textlintが対応するGFMの表示本文を保ち、拡張構文がある段落も解析する。
+    const { linter, log } = await setup(t);
+    const paragraphs = ["~~雲を食べる~~。", "https://example.com 雲を食べる。",
+        "www.example.com 雲を食べる。", "雲をexample@example.com食べる。",
+        "<https://example.com> 雲を食べる。", "<a@example.com> 雲を食べる。",
+        "- [x] 雲を食べる。", "- [ ] 雲を食べる。", "~~&#x96F2;を食べる~~。"];
+    const text = paragraphs.join("\n\n");
+    const { messages } = await linter.lintText(text, "文書.md");
+    const expected = [...text.matchAll(/雲を食べる/gu)].map(match => [match.index, match.index + match[0].length]);
+    expected.push([text.indexOf("&#x96F2;"), text.lastIndexOf("~~。")]);
+    assert.deepEqual(messages.map(message => message.range), expected);
+    assert.deepEqual((await log())[0].texts, ["雲を食べる。", "https://example.com 雲を食べる。",
+        "www.example.com 雲を食べる。", "雲をexample@example.com食べる。",
+        "https://example.com 雲を食べる。", "a@example.com 雲を食べる。",
+        "雲を食べる。", "雲を食べる。", "雲を食べる。"]);
+});
+
+test("取り消し線と自動リンクの本文自体への指摘を原文へ戻す", async t => {
+    const { linter } = await setup(t, {}, ["--diagnostic-ranges", JSON.stringify([[0, 1]])]);
+    for (const [text, start] of [["~~雲を食べる~~。", 2], ["https://example.com 雲を食べる。", 0],
+        ["www.example.com 雲を食べる。", 0], ["雲をexample@example.com食べる。", 0],
+        ["<https://example.com> 雲を食べる。", 1], ["<a@example.com> 雲を食べる。", 1]]) {
+        const { messages } = await linter.lintText(text, "文書.md");
+        assert.deepEqual(messages.map(message => message.range), [[start, start + 1]]);
+    }
+});
+
 test("同じ文字を含む入れ子装飾でも該当する葉の位置を使う", async t => {
     const { linter } = await setup(t);
     const text = "**雲*雲***を食べる。";
@@ -155,14 +183,95 @@ test("画像・HTMLの前後を連結せず、fenceを除外する", async t => 
     assert.deepEqual((await log())[0].texts, ["雲をx食べる。", "雲を食べる", "雲を", "食べる。", "雲を", "食べる", "。"]);
 });
 
-test("entityとescapeのある葉は未検査にし、後の安全な葉を正しく写像する", async t => {
+// 期待はMarkdownの可視本文と原文の対応、および通常テキストをそのまま渡す契約から定める。
+test("entityとescapeを含む全段落を解析し、変換後の指摘を原文へ戻す", async t => {
     const { linter, log } = await setup(t);
     const text = "&amp; 雲を食べる。\n\n\\* 雲を食べる。\n\n&amp; **雲を食べる**。";
     const { messages } = await linter.lintText(text, "文書.md");
-    assert.equal(messages.length, 1);
-    assert.equal(messages[0].index, text.lastIndexOf("雲"));
-    assert.equal(messages[0].range[1], text.lastIndexOf("**。"));
-    assert.deepEqual((await log())[0].texts, ["雲を食べる。"]);
+    assert.deepEqual(messages.map(message => message.range), [...text.matchAll(/雲を食べる/gu)].map(match =>
+        [match.index, match.index + match[0].length]));
+    assert.deepEqual((await log())[0].texts, ["& 雲を食べる。", "* 雲を食べる。", "& 雲を食べる。"]);
+});
+
+test("数値参照と装飾を跨ぐ指摘の両端に元の文字参照全体を含める", async t => {
+    const { linter, log } = await setup(t);
+    const text = "&#x96F2;を**食べ&#x308B;**。\n\n**&#38642;を食べる**。";
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [
+        [0, text.indexOf("**。")], [text.indexOf("&#38642;"), text.lastIndexOf("**。")]
+    ]);
+    assert.deepEqual((await log())[0].texts, ["雲を食べる。", "雲を食べる。"]);
+});
+
+test("複数文字参照の部分指摘と補助平面・escapeの指摘を元の表記全体へ戻す", async t => {
+    // CommonMark §6.2: fjligは2文字、NotEqualTildeは結合文字を含む2文字、Afrは補助平面文字。
+    const ranges = [[0, 1], [3, 4], [6, 8], [9, 11], [12, 14], [15, 16]];
+    const { linter, log } = await setup(t, {}, ["--diagnostic-ranges", JSON.stringify(ranges)]);
+    const entities = ["&fjlig;", "&NotEqualTilde;", "&Afr;", "&#x1F363;", "&#127843;", "\\*"];
+    const text = entities.join(" ");
+    const { messages } = await linter.lintText(text, "文書.md");
+    const expected = entities.map(entity => [text.indexOf(entity), text.indexOf(entity) + entity.length]);
+    assert.deepEqual(messages.map(message => message.range), expected);
+    assert.deepEqual((await log())[0].texts, ["fj ≂̸ 𝔄 🍣 🍣 *"]);
+});
+
+test("複数文字参照の後半だけの指摘も参照全体へ戻す", async t => {
+    const { linter } = await setup(t, {}, ["--diagnostic-ranges", JSON.stringify([[1, 2], [4, 5]])]);
+    const text = "&fjlig; &NotEqualTilde;";
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [[0, 7], [8, text.length]]);
+});
+
+test("文字参照は一段だけ復号し、無効な参照とcode内部の表記を保持する", async t => {
+    const { linter, log } = await setup(t);
+    const text = "\\&amp; 雲を食べる。\n\n&amp;amp; 雲を食べる。\n\n&bogus; &amp 雲を食べる。\n\n`&amp; \\*` 雲を食べる。\n\n&amp;";
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [...text.matchAll(/雲を食べる/gu)].map(match =>
+        [match.index, match.index + match[0].length]));
+    assert.deepEqual((await log())[0].texts, ["&amp; 雲を食べる。", "&amp; 雲を食べる。",
+        "&bogus; &amp 雲を食べる。", "&amp; \\* 雲を食べる。", "&"]);
+});
+
+test("引用とリスト継続行でCRLFと変換を併用しても原文位置を保持する", async t => {
+    const { linter, log } = await setup(t);
+    const text = "> &amp; 🍣\r\n> &#x96F2;を**食べる**。\r\n\r\n- \\* &#127843;\r\n  &#38642;を食べ&#x308B;。";
+    const { messages } = await linter.lintText(text, "文書.md");
+    assert.deepEqual(messages.map(message => [message.range, message.line, message.column]), [
+        [[text.indexOf("&#x96F2;"), text.indexOf("**。")], 2, 3],
+        [[text.indexOf("&#38642;"), text.lastIndexOf("。")], 5, 3]
+    ]);
+    assert.deepEqual((await log())[0].texts, ["& 🍣\r\n雲を食べる。", "* 🍣\r\n雲を食べる。"]);
+});
+
+test("Markdownのhard breakを改行へ変換し、txtとtextでは構文を文字通り保持する", async t => {
+    const { linter, log } = await setup(t);
+    const text = "&amp; \\* **雲を食べる**。  \r\n# `Pod`を[削除する](url)\\\r\n続き。";
+    for (const extension of ["txt", "text"]) {
+        const { messages } = await linter.lintText(text, `文書.${extension}`);
+        assert.deepEqual(messages.map(message => message.range), [
+            [text.indexOf("雲"), text.indexOf("雲") + "雲を食べる".length],
+            [text.indexOf("Pod"), text.indexOf("Pod") + "Pod".length]
+        ]);
+    }
+    const markdown = "&amp; 雲を食べる。  \r\n\\* Podを削除する。\\\r\n続き。";
+    const { messages } = await linter.lintText(markdown, "文書.md");
+    assert.deepEqual(messages.map(message => message.range), [
+        [markdown.indexOf("雲"), markdown.indexOf("雲") + "雲を食べる".length],
+        [markdown.indexOf("Pod"), markdown.indexOf("Pod") + "Podを削除する".length]
+    ]);
+    assert.deepEqual((await log()).map(request => request.texts), [[text], [text],
+        ["& 雲を食べる。\r\n* Podを削除する。\r\n続き。"]]);
+});
+
+test("本文のAST・原文・tokenが一致しない場合は未検査にせずエラーにする", async () => {
+    const text = "&amp; 雲を食べる。";
+    for (const change of [{ value: "& 別文。" }, { range: [1, text.length] }, { raw: "&amp; 別文。" }]) {
+        const listeners = preset.rules.usage({ Syntax: { Paragraph: "Paragraph", Header: "Header", Document: "Document" } },
+            { command: [process.execPath] });
+        listeners.Paragraph({ type: "Paragraph", raw: text, range: [0, text.length],
+            children: [{ type: "Str", raw: text, value: "& 雲を食べる。", range: [0, text.length], ...change }] });
+        await assert.rejects(listeners["Document:exit"]({ raw: text }), /本文の解析結果が原文と一致/);
+    }
 });
 
 test("並列文書の応答を混同せず同じプロセスを再利用し、commandをshell展開しない", async t => {
@@ -214,7 +323,7 @@ test("外部commandの起動失敗と設定した応答期限を伝える", asyn
 
 test("UTF-16のサロゲート境界・範囲外・encoding・訂正候補の不正を拒否する", async t => {
     const { linter } = await setup(t);
-    for (const [text, error] of [["🍣範囲不正", /UTF-16範囲/], ["範囲外", /UTF-16範囲/],
+    for (const [text, error] of [["🍣範囲不正", /UTF-16範囲/], ["&#x1F363;範囲不正", /UTF-16範囲/], ["範囲外", /UTF-16範囲/],
         ["encoding不正", /offsetEncoding/], ["候補不正", /suggestions/]]) {
         await assert.rejects(linter.lintText(text, "文書.md"), error);
     }

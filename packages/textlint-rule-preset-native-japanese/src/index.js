@@ -1,4 +1,4 @@
-import { StringSource } from "textlint-util-to-string";
+import { decodeString } from "micromark-util-decode-string";
 import { extname } from "node:path";
 import { parse, preprocess, postprocess } from "micromark";
 import { configuration, getWorker } from "./worker.js";
@@ -9,34 +9,71 @@ function inlineSources(text) {
     const spans = new Map();
     const tokens = [];
     let current;
+    let reference;
     for (const [kind, token, context] of events) {
-        if (kind === "enter" && ["data", "lineEnding"].includes(token.type)) {
-            const range = [token.start.offset, token.end.offset];
-            tokens.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
+        const range = [token.start.offset, token.end.offset];
+        const raw = text.slice(...range);
+        if (kind === "enter" && ["data", "lineEnding", "characterReference", "characterEscape", "autolinkProtocol", "autolinkEmail"].includes(token.type)) {
+            const atomic = ["characterReference", "characterEscape"].includes(token.type);
+            const value = atomic ? decodeString(raw) : context.sliceSerialize(token);
+            const leaf = { range, raw, value, atomic };
+            // textlint 15のMarkdown parserは補助平面の数値参照をfromCharCodeで復号する。
+            // 比較用の値だけを互換化し、解析機へは正しいUnicode本文を渡す。
+            if (token.type === "characterReference" && raw.startsWith("&#") && value.length === 2 &&
+                value.codePointAt(0) > 0xFFFF) {
+                leaf.astValue = String.fromCharCode(value.codePointAt(0));
+            }
+            tokens.push(leaf);
+            if (token.type === "characterReference") reference = leaf;
         }
+        if (kind === "enter" && token.type === "characterReferenceValue" && reference) {
+            // 同parserのStr終端は末尾の参照値までで、終端の';'を含まない。
+            reference.astEnd = token.end.offset;
+        }
+        if (kind === "exit" && token.type === "characterReference") reference = undefined;
         if (kind === "enter" && token.type === "codeText") {
-            current = { raw: text.slice(token.start.offset, token.end.offset), children: [] };
-            spans.set(`${token.start.offset}:${token.end.offset}`, current);
+            current = { raw, children: [] };
+            spans.set(`${range[0]}:${range[1]}`, current);
         } else if (kind === "exit" && token.type === "codeText") {
             current = undefined;
         } else if (current && kind === "enter" && ["codeTextData", "lineEnding"].includes(token.type)) {
-            const range = [token.start.offset, token.end.offset];
-            current.children.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
+            current.children.push({ range, raw, value: context.sliceSerialize(token) });
         }
     }
     return { spans, tokens };
 }
 
-// ASTの葉とparserが返したtokenだけを接続し、Markdownの装飾位置を推測しない。
+// 各UTF-16コード単位に原文範囲を保持する。文字参照内の部分範囲も参照全体へ戻す。
+function segmentFromLeaves(node, leaves) {
+    const starts = [];
+    const ends = [];
+    const text = leaves.map(leaf => leaf.value).join("");
+    for (const leaf of leaves) {
+        const start = leaf.range[0] - node.range[0];
+        const end = leaf.range[1] - node.range[0];
+        if (start < 0 || end > node.raw.length || start >= end ||
+            node.raw.slice(start, end) !== leaf.raw ||
+            (!leaf.atomic && end - start !== leaf.value.length)) {
+            throw new Error("native-japanese: 本文の解析結果が原文と一致しないため、指摘位置を特定できません。");
+        }
+        for (let i = 0; i < leaf.value.length; i++) {
+            starts.push(leaf.atomic ? start : start + i);
+            ends.push(leaf.atomic ? end : start + i + 1);
+        }
+    }
+    return { node, text, source: {
+        originalIndexFromIndex: (index, isEnd = false) => isEnd ? ends[index - 1] : starts[index]
+    } };
+}
+
+// ASTの葉とparserが返したtokenを照合し、Markdownの装飾位置を推測しない。
 export function plainSegments(node, codeSpans, tokens = []) {
     const segments = [];
     let leaves = [];
     const flush = () => {
         if (leaves.length) {
-            // StringSourceの親要素による装飾位置の推定を避け、元のStr範囲を保持する。
-            const source = new StringSource({ ...node, type: "Paragraph", children: leaves });
-            const text = source.toString();
-            if (text.trim()) segments.push({ node, source, text });
+            const segment = segmentFromLeaves(node, leaves);
+            if (segment.text.trim()) segments.push(segment);
         }
         leaves = [];
     };
@@ -48,32 +85,35 @@ export function plainSegments(node, codeSpans, tokens = []) {
             const span = codeSpans.get(`${start}:${end}`);
             if (!span || span.raw !== child.raw ||
                 node.raw.slice(start - node.range[0], end - node.range[0]) !== span.raw ||
-                span.children.map(leaf => leaf.value).join("") !== child.value ||
-                span.children.some(leaf => leaf.raw !== leaf.value || leaf.range[0] < start ||
-                    leaf.range[1] > end || leaf.range[1] - leaf.range[0] !== leaf.value.length)) {
+                span.children.map(leaf => leaf.value).join("") !== child.value) {
                 throw new Error("native-japanese: インラインコードの解析結果が原文と一致しないため、指摘位置を特定できません。");
             }
             leaves.push(...span.children);
         } else if (child.type === "Str" || child.type === "Break") {
-            const value = child.type === "Break" ? child.raw : child.value;
             const [start, end] = child.range;
-            // entity/escapeなど、復元できない葉は境界として扱い、前後を連結しない。
-            if (typeof value !== "string" || child.raw !== value || end - start !== value.length ||
-                node.raw.slice(start - node.range[0], end - node.range[0]) !== value) {
-                // 継続行の字下げはparserのtoken範囲を使い、可視本文の完全一致を確認する。
-                const parts = child.type === "Str"
-                    ? tokens.filter(leaf => leaf.range[0] >= start && leaf.range[1] <= end) : [];
-                if (parts.length && parts.map(leaf => leaf.value).join("") === value &&
-                    parts.every(leaf => leaf.raw === leaf.value &&
-                        leaf.range[1] - leaf.range[0] === leaf.value.length &&
-                        node.raw.slice(leaf.range[0] - node.range[0], leaf.range[1] - node.range[0]) === leaf.raw)) {
-                    leaves.push(...parts);
-                } else {
-                    flush();
+            const parts = tokens.flatMap(leaf => {
+                if (leaf.range[0] >= start && (leaf.range[1] <= end || leaf.astEnd === end)) return [leaf];
+                // GFMのASTが通常dataを分割する場合は、両parserの原文範囲の交差だけを採る。
+                // 文字参照・escapeは不可分とし、復号後の長さから位置を推定しない。
+                if (!leaf.atomic && leaf.raw === leaf.value && leaf.range[1] - leaf.range[0] === leaf.value.length &&
+                    leaf.range[0] < end && leaf.range[1] > start) {
+                    const range = [Math.max(start, leaf.range[0]), Math.min(end, leaf.range[1])];
+                    const value = leaf.value.slice(range[0] - leaf.range[0], range[1] - leaf.range[0]);
+                    return [{ ...leaf, range, raw: value, value }];
                 }
-            } else {
-                leaves.push({ ...child, type: "Str", value });
+                return [];
+            });
+            const value = parts.map(leaf => leaf.value).join("");
+            const astValue = parts.map(leaf => leaf.astValue ?? leaf.value).join("");
+            if (!parts.length || parts[0].range[0] < start ||
+                (parts.at(-1).range[1] !== end && parts.at(-1).astEnd !== end) ||
+                child.raw !== node.raw.slice(start - node.range[0], end - node.range[0]) ||
+                (child.type === "Str" && (parts[0].range[0] !== start ||
+                    (value !== child.value && astValue !== child.value))) ||
+                (child.type === "Break" && (parts.length !== 1 || !/^[\r\n]+$/u.test(value)))) {
+                throw new Error("native-japanese: 本文の解析結果が原文と一致しないため、指摘位置を特定できません。");
             }
+            leaves.push(...parts);
         } else {
             // Image、Html、未知の拡張ノードは評価対象を分離する。
             flush();
@@ -120,10 +160,16 @@ function usage(context, options = {}) {
         [Syntax.Header]: collect,
         async [`${Syntax.Document}:exit`](document) {
             if (!nodes.length) return;
-            const { spans, tokens } = inlineSources(document.raw);
-            const paragraphs = [".txt", ".text"].includes(extname(context.getFilePath?.() ?? ""))
-                ? textParagraphs(document) : nodes;
-            const segments = paragraphs.flatMap(node => plainSegments(node, spans, tokens));
+            const isText = [".txt", ".text"].includes(extname(context.getFilePath?.() ?? ""));
+            let segments;
+            if (isText) {
+                // 通常テキストはMarkdown parserへ渡さず、全ての記号をそのまま解析する。
+                segments = textParagraphs(document).filter(node => node.raw.trim()).map(node =>
+                    segmentFromLeaves(node, [{ range: node.range, raw: node.raw, value: node.raw }]));
+            } else {
+                const { spans, tokens } = inlineSources(document.raw);
+                segments = nodes.flatMap(node => plainSegments(node, spans, tokens));
+            }
             const results = segments.length
                 ? await getWorker(config).request(segments.map(segment => segment.text)) : [];
             for (let i = 0; i < results.length; i++) {
