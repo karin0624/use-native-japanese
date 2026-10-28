@@ -17,9 +17,35 @@
 
 ## データの流れ
 
-検査は、本文抽出 → GiNZA解析 → 同じ完全`Analysis`を各`judge.assess()`へ渡す → 判定結果を集約 → 原文位置付き指摘、の順です。現在の判定機は`UsageJudge`で、局所的にP/N関係のview・照会・対応検証を行います。これは共通解析の情報選別や正規化ではなく、他の判定機へも元の全情報を渡します。[比較条件](usage.md)は入力と参照で共通です。
+### 本文の検査
 
-参照の構築は、出典本文 → `extract` → JSONL → `import` → 正本SQLite → `prepare` → 配布SQLite、の順です。正本は原文・完全解析・全出典対応を保持し、検査端末には派生cacheとして厳密索引・実共起群・Bloom集合・名詞群平均を配ります。
+```mermaid
+flowchart TB
+    document["検査する文書"] --> extract["textlintルール<br/>本文を抽出"]
+    extract -->|workerがJSONLで送信| parser["Parser<br/>GiNZAで解析"]
+    parser --> analysis["完全なAnalysis<br/>解析対象の原文・完全Doc・復元用の語彙情報"]
+    analysis -->|同じAnalysisを渡す| judges["各判定機のjudge.assess<br/>現在はUsageJudge"]
+    reference[("配布参照SQLite")] -->|用例との照合に使用| judges
+    judges --> aggregate["Inspector<br/>各判定機の結果を集約"]
+    aggregate -->|指摘をJSONLで返す| report["textlintルール<br/>文書の原文位置へ変換して指摘を表示"]
+```
+
+`UsageJudge`は、受け取った完全な`Analysis`から用法照合に必要な語の関係を取り出して検証し、参照へ照会します。この処理は判定機の内部で行い、他の判定機へ渡す情報を絞りません。入力と参照には共通の[比較条件](usage.md)を適用します。
+
+### 参照の構築
+
+```mermaid
+flowchart TB
+    subgraph build["構築環境"]
+        source["出典本文・出典情報"] --> extract["extract<br/>GiNZAで解析してJSONLへ書き出す"]
+        extract --> records["JSONL<br/>原文・完全解析・出典情報"]
+        records --> import["import<br/>正本へ取り込む"]
+        import --> master[("正本SQLite<br/>原文・完全解析・全出典との対応を保存")]
+        master --> prepare["prepare<br/>配布用の参照を構築"]
+    end
+    prepare --> reference[("配布参照SQLite<br/>述語の厳密索引・実共起群<br/>Bloom集合・名詞群平均")]
+    reference --> runtime["検査端末で読み込む"]
+```
 
 ## 実行・配布
 
