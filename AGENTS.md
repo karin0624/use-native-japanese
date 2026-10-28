@@ -14,3 +14,4 @@
 
 - 文書の保存先・書式は[docs/README.md](docs/README.md)に従う。
 - 開発作業では[development-workflow](.agents/skills/development-workflow/SKILL.md)を読む。
+- テストの設計・追加・変更・レビューでは[仕様からテストを作る手順](docs/guide/testing.md)を読む。
