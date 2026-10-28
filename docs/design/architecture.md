@@ -26,15 +26,15 @@ config:
         wrappingWidth: 320
 ---
 flowchart TB
-    document[/検査する文書/] --> extract["文書から検査する本文を<br/>取り出す"]
-    extract -->|本文をJSONLで送る| parser["本文の単語・品詞・<br/>係り受けを解析する"]
-    parser -->|同じ原文と解析結果を<br/>各判定機へ渡す| judges["用例を根拠に<br/>語の使い方を判定する"]
+    document[/検査する文書/] --> extract["textlintルールで文書から<br/>検査する本文を取り出す"]
+    extract -->|本文をJSONLで送る| parser["GiNZAで本文を解析し<br/>単語・品詞・係り受けを得る<br/>（解析器 Parser）"]
+    parser -->|同じ原文と解析結果を<br/>各判定機へ渡す| judges["用例を根拠に<br/>語の使い方を判定する<br/>（用法判定機 UsageJudge）"]
     reference[("用例から作った照合データ<br/>検査端末用のSQLiteデータベース")] --> judges
-    judges --> aggregate["各判定機の照合結果と<br/>指摘をまとめる"]
-    aggregate -->|照合結果と指摘文を<br/>本文内の位置とともに<br/>JSONLで返す| report["指摘位置を文書の原文に対応付け<br/>メッセージを表示する"]
+    judges --> aggregate["各判定機の照合結果と<br/>指摘をまとめる（Inspector）"]
+    aggregate -->|照合結果と指摘文を<br/>本文内の位置とともに<br/>JSONLで返す| report["textlintルールで指摘位置を<br/>文書の原文に対応付け<br/>メッセージを表示する"]
 ```
 
-解析器は受け取った本文を原文として保持し、単語の位置・品詞・活用・係り受けなど、GiNZAが返す全解析情報を保存します。解析結果を読み戻せるよう、解析時点の語の表記・属性・単語ベクトルなどの辞書データも保持します。各判定機はこれらの情報を参照します。用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。
+解析器は受け取った本文を原文として保持し、単語の位置・品詞・活用・係り受けなど、GiNZAが返す全解析情報を保存します。解析結果を読み戻せるよう、解析時点の語の表記・属性・単語ベクトルなどの辞書データも保持します。これらを保持する同じ`Analysis`を各判定機へ渡します。用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。
 
 ### 参照の構築
 
@@ -46,7 +46,7 @@ config:
 ---
 flowchart TB
     subgraph build["構築環境"]
-        source[/出典本文と出典ID・URL/] --> extract["出典本文を解析し<br/>出典情報とともに書き出す"]
+        source[/出典本文と出典ID・URL/] --> extract["GiNZAで出典本文を解析し<br/>出典情報とともに書き出す"]
         extract --> records[/原文・解析結果・出典情報<br/>JSONL/]
         records --> import["原文と解析結果を取り込み<br/>各出典に対応付ける"]
         import --> master[("正本SQLite<br/>原文・解析結果・全出典との対応")]
