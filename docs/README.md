@@ -2,10 +2,11 @@
 
 | 読む目的 | 文書 |
 | --- | --- |
+| 製品の目的と開発計画を知る | [プロジェクト紹介](../README.md)、[ロードマップ #36](https://github.com/karin0624/use-native-japanese/issues/36) |
 | 導入する | [セットアップ](guide/setup.md) |
 | 開発環境を用意する | [開発手順](guide/development.md) |
 | 設定・APIを調べる | [textlint](reference/textlint.md)、[Python・CLI](reference/runtime.md) |
-| 仕組みを理解する | [構成](design/architecture.md)、[用法照合](design/usage.md) |
+| 仕組みと現在の解析範囲を理解する | [構成](design/architecture.md)、[述語と組み合わせの用法照合](design/usage.md) |
 | 研究の根拠と限界を調べる | [先行研究](research/prior-research.md) |
 | 日本語の比較単位を調べる | [名詞と述語の比較](research/japanese-predicate-comparison.md) |
 

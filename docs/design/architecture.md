@@ -1,5 +1,7 @@
 # システムの構成
 
+[製品の目的](../../README.md)に向け、複数の解析機が同じ原文と解析情報を参照し、指摘を集約する構成です。現在ある解析機は、述語や名詞との組み合わせを用例へ照合する開発途中の`PredicateJudge`一つです。以下は現在の実装を示します。
+
 ## 構成と責務
 
 | 部品 | 責務 |
@@ -8,8 +10,8 @@
 | [worker](../../packages/textlint-rule-preset-native-japanese/src/worker.js) | JSONL通信、要求と応答の対応、プロセス共有 |
 | [runtime](../../packages/textlint-rule-preset-native-japanese/src/runtime.js) | uvによるPython環境の準備と起動 |
 | [Parser](../../src/native_japanese/parser.py) | 原文・GiNZAのDoc・復元に必要な語彙情報を`Analysis`へ保持 |
-| [Inspector](../../src/native_japanese/service.py) | 同じ`Analysis`を各判定機へ渡し、結果を集約 |
-| [UsageJudge](../../src/native_japanese/service.py) | 用法照合用の局所viewを検証し、参照照会から支持を判定 |
+| [Inspector](../../src/native_japanese/service.py) | 同じ`Analysis`を各判定機へ渡し、結果を集約。現在の判定機は`PredicateJudge`のみ |
+| [PredicateJudge](../../src/native_japanese/service.py) | 用法照合用の局所viewを検証し、参照照会から支持を判定 |
 | [比較view](../../src/native_japanese/comparison.py) | 用法照合で参照する元Token・辺・述語構成・関係・名詞特徴を同定 |
 | [語彙保存](../../src/native_japanese/vocabulary.py) | 固定Vocab全資源と親付きの不変な差分世代を共有し、各解析時点のVocabへ独立復元 |
 | [Examples](../../src/native_japanese/examples.py) | 原文・解析結果・全出典を保存し、再構築可能な索引を作成 |
@@ -29,7 +31,7 @@ flowchart TB
     document[/検査する文書/] --> extract["textlintルールで文書から<br/>検査する本文を取り出す"]
     extract -->|本文をJSONLで送る| parser["GiNZAで本文を解析し<br/>単語・品詞・係り受けを得る<br/>（解析器 Parser）"]
     subgraph judges_group["判定機"]
-        judges["用例を根拠に<br/>語の使い方を判定する<br/>（用法判定機 UsageJudge）"]
+        judges["用例を根拠に<br/>語の使い方を判定する<br/>（述語判定機 PredicateJudge）"]
     end
     parser -->|同じ原文と解析結果を<br/>各判定機へ渡す| judges
     reference[("用例から作った照合データ<br/>検査端末用のSQLiteデータベース")] --> judges
@@ -37,7 +39,7 @@ flowchart TB
     aggregate -->|照合結果と指摘文を<br/>本文内の位置とともに<br/>JSONLで返す| report["textlintルールで指摘位置を<br/>文書の原文に対応付け<br/>メッセージを表示する"]
 ```
 
-解析器は受け取った本文を原文として保持し、単語の位置・品詞・活用・係り受けなど、GiNZAが返す全解析情報を保存します。解析結果を読み戻せるよう、解析時点の語の表記・属性・単語ベクトルなどの辞書データも保持します。これらを保持する同じ`Analysis`を各判定機へ渡します。用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。
+解析器は受け取った本文を原文として保持し、単語の位置・品詞・活用・係り受けなど、GiNZAが返す全解析情報を保存します。解析結果を読み戻せるよう、解析時点の語の表記・属性・単語ベクトルなどの辞書データも保持します。これらを保持する同じ`Analysis`を各判定機へ渡します。現在の用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。追加する解析機の判定方式は、それぞれの対象に応じて定めます。
 
 ### 参照の構築
 

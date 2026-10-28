@@ -21,7 +21,7 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
 | `lint(text: str)` | `analysis`・`relations`・`diagnostics`を持つ`LintResult` |
 | `lint_many(texts: Iterable[str])` | 入力順の`tuple[LintResult, ...]` |
 
-`Inspector`は解析後の同じ`Analysis`を各`judge.assess(analysis)`へ渡し、`JudgeResult`の関係と指摘を集約する。`judges`は`UsageJudge`一つで、`assess()`内で用法照合用viewの作成・検証と参照照会を行う。
+`Inspector`は解析後の同じ`Analysis`を各`judge.assess(analysis)`へ渡し、`JudgeResult`の関係と指摘を集約する。現在の`judges`は開発途中の`PredicateJudge`一つで、`assess()`内で用法照合用viewの作成・検証と参照照会を行う。製品の目的と、追加を計画する解析機は[プロジェクト紹介](../../README.md)を参照する。
 
 `Analysis`は`text`・`snapshot`・`vocabulary: VocabularySnapshot`を持つ。`vocabulary.resources`は固定Vocab全資源、`vocabulary.generation`は解析時点の`VocabularyGeneration`への参照である。世代は親と差分snapshotを持ち、`generation_id`・`resource_id`・`parent_id`で識別する。Parser所有の`VocabularyRecorder`が追加・変更を記録し、各世代を不変値として共有する。文書のLexeme・lookups状態は`vocabulary`に分けて保持する。`Analysis.restore_doc()`は語彙情報を含めて保存したDocの独立したコピーを返す。
 
@@ -29,7 +29,7 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
 
 `predicates`は元述語役割の証拠付き構成と`marker_units`（markとそのfixed機能単位）、`relations`は評価辺・端点・照会・比較viewを返す。viewのToken IDと依存辺は同じsnapshotを参照する。`predicate_root`は同じ文書内のP出現を指す。`OccurrenceView`はNの全subtreeと、`noun_feature_nodes`・`noun_case_nodes`・`noun_mark_nodes`・`noun_predicate_roots`を分けて持つ。P–P関係では`Query.related_predicate`と`related_attachment`で第二Pと接続点を保持し、`Query.noun`は空になる。`Analysis.comparison.roles`と`targets`には、認識した役割と、各元辺を関係・構成内部として参照する区分や、非語彙端点・名詞表現として働かない修飾先（`non_nominal_modifier`）などの対象外理由を保持する。
 
-関係の評価には`status`（`indexed`・`supported`・`review`）、`score: float \| None`、照会ごとの支持情報を含む。指摘は`range`と`message`を持ち、全位置は0始まり・終端を含まないPython文字添字。
+関係の評価には`status`（`indexed`・`supported`・`review`）、`score: float \| None`、照会ごとの支持情報を含む。現在の指摘は`range`と`message`を持ち、修正案は生成しない。全位置は0始まり・終端を含まないPython文字添字。
 
 ## CLI
 
