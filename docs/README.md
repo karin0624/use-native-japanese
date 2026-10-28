@@ -2,7 +2,7 @@
 
 | 読む目的 | 文書 |
 | --- | --- |
-| 製品の目的と開発計画を知る | [プロジェクト紹介](../README.md)、[ロードマップ #36](https://github.com/karin0624/use-native-japanese/issues/36) |
+| 製品の目的と開発計画を知る | [プロジェクト紹介](../README.md)、[ロードマップ #38](https://github.com/karin0624/use-native-japanese/issues/38) |
 | 導入する | [セットアップ](guide/setup.md) |
 | 開発環境を用意する | [開発手順](guide/development.md) |
 | 設定・APIを調べる | [textlint](reference/textlint.md)、[Python・CLI](reference/runtime.md) |
