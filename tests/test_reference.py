@@ -200,6 +200,7 @@ def test_failed_build_preserves_prior_output_and_never_overwrites_archive(
         "old_version",
         "missing_mean",
         "invalid_group",
+        "capacity",
     ],
 )
 def test_corrupt_reference_is_rejected(setup_reference, damage):
@@ -228,6 +229,15 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
             db.execute("PRAGMA user_version=1")
         elif damage == "missing_mean":
             db.execute("UPDATE groups SET mean=NULL")
+        elif damage == "capacity":
+            builder = reference.membership.Builder(1)
+            builder.add(query_key(QUERY))
+            raw, manifest = builder.finish()
+            db.execute("UPDATE membership SET payload=?", (raw,))
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='membership'",
+                (reference.canonical(manifest),),
+            )
         else:
             db.execute("UPDATE membership SET payload=zeroblob(length(payload))")
     with pytest.raises(ValueError):
@@ -484,10 +494,14 @@ def test_recognized_targets_cannot_disappear_or_query_other_targets(
         monkeypatch.setattr(inspector, "analyze", lambda _: analysis)
         with pytest.raises(ValueError, match="照会|一致"):
             inspector.lint(text)
+
+
+def test_input_without_recognized_targets_needs_no_review(tmp_path, compile_usages):
+    output = compile_usages(("走るのが好きだ。",))
     with Inspector(output, tmp_path) as inspector:
-        assert not inspector.lint("").diagnostics
-        assert not inspector.lint(" \n").diagnostics
-        assert not inspector.lint("処理の再利用").diagnostics
+        for text in ("", " \n", "処理の再利用"):
+            result = inspector.lint(text)
+            assert not result.relations and not result.diagnostics
 
 
 @pytest.mark.parametrize("separate_inner", [False, True])
@@ -535,7 +549,8 @@ def pair_analysis(*, inner="内P", form="意志推量形", auxiliary="補助", s
 
 
 @pytest.mark.parametrize("changed", [{"inner": "別P"}, {"form": "連体形"}, {"auxiliary": "別補助"}])
-def test_predicate_pair_requires_joint_strict_compositions(tmp_path, monkeypatch, changed):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_predicate_pair_requires_joint_strict_compositions(tmp_path, monkeypatch, changed, legacy):
     source, probe = pair_analysis(), pair_analysis(**changed)
     source_query = next(r.queries[0] for r in source.relations if r.queries[0].related_predicate)
     query = next(r.queries[0] for r in probe.relations if r.queries[0].related_predicate)
@@ -546,16 +561,44 @@ def test_predicate_pair_requires_joint_strict_compositions(tmp_path, monkeypatch
     with Examples(archive, writable=True) as examples:
         examples.import_jsonl(
             lines(
+                record(),
                 *(
                     row
                     for a in (source, pair_analysis(**changed, standalone=True))
                     for row in extract_records(a, "出典", "url")
-                )
+                ),
             )
         )
     monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
-    reference.build_reference(archive, output, tmp_path)
+    result = reference.build_reference(archive, output, tmp_path)
+    assert result["usages"] == 2
+    with sqlite3.connect(output) as db:
+        manifest = json.loads(
+            db.execute("SELECT value FROM metadata WHERE key='membership'").fetchone()[0]
+        )
+        assert manifest["capacity"] == 1
+        if legacy:
+            # schema 3はN–PとP–Pの両方をBloom集合に登録する。
+            builder = reference.membership.Builder(2)
+            for usage in (QUERY, source_query):
+                builder.add(query_key(usage))
+            raw, manifest = builder.finish()
+            identity = json.loads(
+                db.execute("SELECT value FROM metadata WHERE key='identity'").fetchone()[0]
+            )
+            identity["schema_version"] = 3
+            db.execute("PRAGMA user_version=3")
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='identity'",
+                (reference.canonical(identity),),
+            )
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='membership'",
+                (reference.canonical(manifest),),
+            )
+            db.execute("UPDATE membership SET payload=?", (raw,))
     with reference.Reference(output, tmp_path) as runtime:
+        assert runtime.assess(QUERY).indexed
         monkeypatch.setattr(reference.membership, "contains", lambda *args: True)
         monkeypatch.setattr(
             reference.resources,

@@ -3,8 +3,10 @@ import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const log = process.argv[2];
+let requestCount = 0;
 createInterface({ input: process.stdin }).on("line", line => {
     const { id, texts } = JSON.parse(line);
+    requestCount += 1;
     appendFileSync(log, `${JSON.stringify({ id, texts, pid: process.pid, args: process.argv.slice(2) })}\n`);
     if (texts.includes("終了")) process.exit(7);
     if (texts.includes("待機")) return;
@@ -18,6 +20,9 @@ createInterface({ input: process.stdin }).on("line", line => {
         range: [match.index, match.index + match[0].length],
         message: "人工fixtureの指摘", suggestions: ["ご飯を食べる"]
     })) }));
+    if (process.argv[3] === "--clear-diagnostics-after-first-request" && requestCount > 1) {
+        for (const result of results) result.diagnostics = [];
+    }
     if (texts.includes("🍣範囲不正")) results[0].diagnostics = [{ range: [1, 3], message: "不正な範囲" }];
     if (texts.includes("範囲外")) results[0].diagnostics = [{ range: [0, 100], message: "不正な範囲" }];
     if (texts.includes("encoding不正")) results[0].offsetEncoding = "unicode-code-points";

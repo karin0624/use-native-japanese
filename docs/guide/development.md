@@ -12,7 +12,7 @@ cd use-native-japanese
 git lfs install
 git lfs pull
 npm ci
-npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.13
+npm exec --no -- uv sync --locked --managed-python --python 3.12.13
 ```
 
 リポジトリのルートでcheckoutのソースを検査します。

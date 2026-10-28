@@ -33,7 +33,7 @@ jobs:
       - name: checkoutのNodeテスト
         run: npm test
       - name: checkoutのPython開発環境を準備
-        run: npm exec --no -- uv sync --locked --extra setup --managed-python --python 3.12.13
+        run: npm exec --no -- uv sync --locked --managed-python --python 3.12.13
       - name: checkoutのPythonテスト
         if: runner.os == 'Linux'
         run: npm exec --no -- uv run --no-sync pytest -q

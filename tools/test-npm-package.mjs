@@ -124,7 +124,7 @@ try {
         const content = await readFile(path.join(assets, expected.file));
         assert.equal(content.length, expected.bytes);
         assert.ok(!content.subarray(0, 100).toString().startsWith("version https://git-lfs.github.com/spec/v1"));
-        assert.equal(await sha256(path.join(assets, expected.file)), expected.sha256);
+        assert.equal(createHash("sha256").update(content).digest("hex"), expected.sha256);
     }
     assert.equal(await sha256(path.join(assets, sourceManifest.provenance.sourcesFile)), sourceManifest.provenance.sourcesSha256);
     for (const name of licenses) {

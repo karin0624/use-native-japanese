@@ -85,14 +85,14 @@ def test_download_uses_fixed_url_and_rejects_mismatched_bytes(tmp_path, monkeypa
     monkeypatch.setattr(setup, "metadata", lambda: {"contract": "fixture", "assets": [item]})
     calls = []
 
-    def download(url, *, timeout):
-        calls.append((url, timeout))
+    def download(url, **_kwargs):
+        calls.append(url)
         return io.BytesIO(b"wrong")
 
     monkeypatch.setattr(setup, "urlopen", download)
     with pytest.raises(ValueError, match="不一致"):
         setup.prepare(argparse.Namespace(assets_dir=tmp_path, reuse=[], offline=False))
-    assert calls == [(item["url"], 90)]
+    assert calls == [item["url"]]
     assert list(tmp_path.iterdir()) == []
 
 

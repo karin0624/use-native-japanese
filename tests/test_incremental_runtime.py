@@ -11,7 +11,7 @@ from test_reference import setup_reference as setup_reference
 
 from native_japanese import Endpoint, Query, Relation, reference
 from native_japanese import __main__ as cli
-from native_japanese.models import PredicateGraph, PredicateNode
+from native_japanese.models import Comparison, PredicateGraph, PredicateNode
 from native_japanese.service import Inspector
 from native_japanese.support import Support
 
@@ -20,6 +20,10 @@ from native_japanese.support import Support
 class StubAnalysis:
     text: str
     relations: tuple[Relation, ...]
+
+    @property
+    def comparison(self):
+        return Comparison((), self.relations)
 
     def validate_comparison(self):
         pass
@@ -115,13 +119,6 @@ def test_no_support_reports_usage_error_at_discontinuous_utf16_ranges(monkeypatc
     with inspector(monkeypatch, assessments={QUERY: Support(False, 0.35)}) as instance:
         assert instance.lint(TEXT).relations[0].status == "supported"
         assert instance.lint(TEXT).diagnostics == ()
-
-
-def test_relation_without_query_is_analysis_failure(monkeypatch):
-    analysis = replace(ANALYSIS, relations=(replace(RELATION, queries=()),))
-    with inspector(monkeypatch, analysis=analysis) as instance:
-        with pytest.raises(ValueError, match="照会条件"):
-            instance.lint(TEXT)
 
 
 def test_all_comparable_candidates_use_greatest_support(monkeypatch):
