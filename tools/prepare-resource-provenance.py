@@ -10,10 +10,34 @@ from pathlib import Path
 
 from native_japanese.models import NORMALIZATION_IDENTITY
 
-REFERENCE_BYTES = 136867840
-REFERENCE_SHA256 = "6946a5d8c3da168facb328db6b6b5c2dea47accc4907ba3f0bb2448fea839ba3"
+REFERENCE_BYTES = 107048960
+REFERENCE_SHA256 = "3f8d1bb31f1f4f4bb1c629eb83e2a4451ca812319b5d7cc481e16823b4aeea01"
 MODEL_SHA256 = "f1435852226301053f2cae0196b61ab291826d5c4a2235215ff9410f728815d7"
 REVISION = "4b58cd23ae34af0f77c424b98807901cf472c377"
+PARSER_MODEL = {
+    "repository": "ku-nlp/kwja-checkpoints",
+    "release": "v2.4",
+    "revision": "4c5db234089ca9e524fc5d32d383bc45e6fe27a2",
+    "size": "base",
+    "tasks": ["char", "word"],
+    "wordWindow": {
+        "default": 256,
+        "extended": 512,
+        "selection": "maximum-sentence-encoding-with-special-tokens",
+    },
+    "checkpoints": [
+        {
+            "file": "char_deberta-v2-base-wwm.ckpt",
+            "bytes": 423739270,
+            "sha256": "0643c468321725e076ed598c6869a33d359a2f14b1c1334b3c71d9d74eeed3d1",
+        },
+        {
+            "file": "word_deberta-v2-base.ckpt",
+            "bytes": 532226786,
+            "sha256": "26a0a2fbcc5ba977d6a837936b6d427784271edb080be4539995a7b118397813",
+        },
+    ],
+}
 
 
 def digest(path: Path) -> str:
@@ -35,7 +59,7 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
     if len(args.passages) != 1 or digest(args.passages[0]) != (
-        "ed90c535785288b76e443a9df835891b8671993a2e855b4ee0955a852a4f421f"
+        "be556530f1ece9213fda4c3203038a4acad06081c1a33d030cb7b13c5829c3c5"
     ):
         raise ValueError("固定した参照本文ファイルのhashと一致しません")
     articles: dict[str, dict] = {}
@@ -136,22 +160,25 @@ def main() -> None:
                 "selectionManifestSha256": (
                     "7ec795750975091fd671951577a892c89e7245113568e151b70bec0121143d4d"
                 ),
+                "passagesSha256": digest(args.passages[0]),
+                "parserModel": PARSER_MODEL,
                 "referenceTransformation": (
-                    "英字で始まる識別子と連続英数字の語の範囲を、複数tokenに厳密一致する"
-                    "場合だけ公開retokenizerで解析前に一tokenへ結合し、単一tokenの公開lemmaは"
-                    "保持する。固定本文の全件を解析パイプラインへ渡す。"
-                    "原文全文・全Docと名詞側の元subtree graphはschema 4の構築用正本に"
-                    "保持する。固定Vocab全資源・全累積状態の共有差分世代と文書Lexeme/lookup状態も保存する。"
-                    "配布対象のschema 3のDBは構築用正本から生成する派生キャッシュである。述語構成は"
-                    "元の語形成・補助構成とmark/fixed機能単位の役割を区別して参照し、"
-                    "lemma・XPOS・Inflection・内部依存方向・相対順・rootを静的な完全一致キーにする。"
-                    "述語役割の認識は評価辺の選択から分離し、名詞化節の内部Pと外側の関係を別々に照合する。"
-                    "関係は述語接続位置・役割・向きで群に分け、csubj/nsubjは主語として共有する。"
-                    "ccomp/xcomp/advclと語彙的述語のadvmodも元役割を照会へ渡す。P0を含む実在述語の完全一致表を"
-                    "Bloom filterより先に確認する。名詞特徴だけは元subtree内部のcase/fixedの格標識を"
-                    "別参照とし、逆向き修飾関係の評価P枝、句読点・空白を含めないlemma列を"
-                    "fastTextで合成する。異なる特徴列の300次元ベクトルを同じP・接続位置・役割・向きの"
-                    "群内で等重み平均する。非名詞化の述語同士の関係は両P構成・両接続点・役割・向きの実共起を完全一致で照会する。原成分とその結合構造を保持する。"
+                    "固定した6,463区間の全文をKWJAへ渡す。原文全文・全KNP解析・"
+                    "公式文字正規化と原文の位置対応はschema 6の構築用正本に保持する。"
+                    "公式tokenizerで得る各文の長さと特殊token数によりwordの窓を256または512に設定する。"
+                    "原文・文境界・モデルの重みは変更しない。"
+                    "配布対象のschema 4のDBは正本から生成する派生キャッシュである。"
+                    "基本句・形態素・述語項構造をその解析単位のまま参照し、"
+                    "述語構成の形態素列・代表表記（なければ原形と読み）・品詞・活用情報・"
+                    "主辞を静的な完全一致キーにする。"
+                    "同じ文節内の接頭辞基本句の連鎖は、元の基本句依存辺とともに述語構成へ含める。"
+                    "形態素間に存在しない依存辺は補わない。基本句の係り受けとPASの格を"
+                    "区別し、元の対象と述語の接続位置・役割・向きを保持する。"
+                    "実在述語の完全一致表をBloom filterより先に確認する。"
+                    "名詞特徴だけは語識別の表記部の列をfastTextで合成し、異なる特徴列の300次元"
+                    "ベクトルを同じ厳密な述語構成・接続位置の名詞組合せの群内で等重み平均する。"
+                    "名詞との照会は格・役割・向きを共通化し、その元情報はKNPと正本のviewへ保持する。"
+                    "述語同士の関係は両構成・両接続点・元関係・役割・向きの実共起を完全一致で照会する。"
                 ),
                 "normalizationIdentity": NORMALIZATION_IDENTITY,
             },
