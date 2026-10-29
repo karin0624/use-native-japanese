@@ -283,6 +283,35 @@ def test_cli_prepare_builds_compiled_reference(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {"usages": 2}
 
 
+@pytest.mark.parametrize("fails", [False, True])
+def test_cli_setup_parser_prepares_models_and_closes_on_failure(monkeypatch, capsys, fails):
+    import native_japanese.parser as parser_module
+    from native_japanese.models import PARSER_VERSIONS
+
+    calls = []
+
+    class Parser:
+        def analyze(self, text):
+            calls.append(text)
+            print("解析モデルの準備ログ")
+            if fails:
+                raise RuntimeError("モデルを取得できません。")
+
+        def close(self):
+            calls.append("closed")
+
+    monkeypatch.setattr(parser_module, "Parser", Parser)
+    assert cli.main(["setup-parser"]) == int(fails)
+    captured = capsys.readouterr()
+    assert calls == ["日本語を解析する。", "closed"]
+    assert "解析モデルの準備ログ" in captured.err
+    if fails:
+        assert captured.out == ""
+        assert "モデルを取得できません" in captured.err
+    else:
+        assert json.loads(captured.out) == {"parser_versions": PARSER_VERSIONS}
+
+
 @pytest.mark.parametrize("threshold", [float("nan"), float("inf"), -1.1, 1.1])
 def test_invalid_threshold_is_rejected_before_initializing(threshold):
     with pytest.raises(ValueError, match="threshold"):
@@ -303,23 +332,24 @@ def test_cli_extract_import_preserves_source_and_new_analysis_contract(
             instances.append(self)
 
         def analyze(self, text):
-            assert text == make_analysis(QUERY).text
-            return make_analysis(QUERY)
+            assert text == make_analysis(REFERENCE_QUERY).text
+            return make_analysis(REFERENCE_QUERY)
 
         def close(self):
             self.closed = True
 
     monkeypatch.setattr(parser_module, "Parser", Parser)
-    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(make_analysis(QUERY).text))
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(make_analysis(REFERENCE_QUERY).text))
     assert (
         cli.main(["extract", "--source-id", "出典", "--source-url", "https://example.test/source"])
         == 0
     )
     extracted = capsys.readouterr().out
     record = json.loads(extracted)
-    assert record["text"] == make_analysis(QUERY).text
-    assert record["schema_version"] == 4
-    assert record["doc_base64"]
+    assert record["text"] == make_analysis(REFERENCE_QUERY).text
+    assert record["schema_version"] == 5
+    assert record["knp"]
+    assert record["offsets"] == [list(span) for span in make_analysis(REFERENCE_QUERY).offsets]
     assert record["source_id"] == "出典"
     assert record["source_url"] == "https://example.test/source"
     assert instances[0].closed
@@ -328,7 +358,7 @@ def test_cli_extract_import_preserves_source_and_new_analysis_contract(
     assert cli.main(["import", "--examples", str(path)]) == 0
     assert json.loads(capsys.readouterr().out)["usages_added"] == 1
     with Examples(path) as examples:
-        assert examples.lookup(QUERY)[0]["source_id"] == "出典"
+        assert examples.lookup(REFERENCE_QUERY)[0]["source_id"] == "出典"
 
 
 def test_reference_is_closed_when_parser_initialization_fails(monkeypatch):
@@ -379,5 +409,11 @@ def test_cli_extract_preserves_crlf_and_full_document(
     assert cli.main(args) == 0
     row = json.loads(capsys.readouterr().out)
     analysis = analysis_from_record(row)
-    assert analysis.text == analysis.restore_doc().text == text
-    assert len(analysis.relations) == 2
+    assert analysis.text == text
+    native = analysis.restore_doc()
+    assert native.text == "電気を消す。本を読む。"
+    assert all(
+        text[start:end] == morpheme.text
+        for morpheme, (start, end) in zip(native.morphemes, analysis.offsets, strict=True)
+    )
+    assert analysis.offsets[-1][1] == len(text) - 2

@@ -13,6 +13,7 @@ git lfs install
 git lfs pull
 npm ci
 npm exec --no -- uv sync --locked --managed-python --python 3.12.13
+npm exec --no -- uv run --locked native-japanese setup-parser
 ```
 
 リポジトリのルートでcheckoutのソースを検査します。
@@ -34,7 +35,7 @@ npm exec --no -- uv run --locked ruff check src tests tools
 
 [.textlintrc.cjs](../../.textlintrc.cjs)がcheckoutのJavaScriptとeditable導入したPythonを接続します。変更はtextlintの再起動で反映され、tgzの再導入は不要です。
 
-固定モデルと参照DBは`packages/textlint-rule-preset-native-japanese/assets`に配置されます。通常の検証で再構築は不要です。用例追加は[CLI仕様](../reference/runtime.md)を参照してください。
+KWJAのbase解析モデルは`setup-parser`で公式配布元から取得し、KWJAのcacheに保存されます。名詞比較用の固定ベクトルモデルと参照DBは`packages/textlint-rule-preset-native-japanese/assets`に配置されます。通常の検証で再構築は不要です。用例追加は[CLI仕様](../reference/runtime.md)を参照してください。
 
 [CI](../../.github/workflows/npm-package.yml)は、checkoutの検査と、実tgzを別プロジェクトへ導入する検査を行います。後者は初回準備・環境再利用・Python CLIとの出力一致を確認します。
 

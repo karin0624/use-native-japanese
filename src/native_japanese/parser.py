@@ -1,85 +1,83 @@
-"""固定GiNZAパイプラインの原文と全解析を、そのまま保持する。"""
+"""KWJAのネイティブ解析と、正規化前の原文への位置対応を保持する。"""
 
-import re
+import sys
 from collections.abc import Iterable, Iterator
 from importlib.metadata import PackageNotFoundError, version
+from unicodedata import combining, normalize
 
-import spacy
-from spacy.language import Language
-from spacy.tokens import Doc, Span
-from spacy.util import minibatch
+from rhoknp import KWJA, Document
 
 from .models import PARSER_VERSIONS, Analysis
-from .vocabulary import (
-    VocabularyRecorder,
-    VocabularyResources,
-    capture_vocabulary_resources,
-    snapshot_vocabulary,
-)
-
-_IDENTIFIER_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_.-])(?:[A-Za-z_][A-Za-z0-9_]*(?:[.-][A-Za-z0-9_]+)*|[0-9][A-Za-z0-9_]*)"
-)
 
 
-def _identifier_spans(doc: Doc) -> tuple[Span, ...]:
-    # 英字開始識別子と、数字開始の連続英数字・下線を結合する。
-    # 原文の部分tokenは拡張せず、一tokenの公開lemmaも保持する。
-    spans = []
-    for match in _IDENTIFIER_PATTERN.finditer(doc.text):
-        span = doc.char_span(*match.span(), alignment_mode="strict")
-        if span is not None and len(span) > 1:
-            spans.append(span)
-    return tuple(spans)
+def _normalized_source(text: str) -> tuple[str, tuple[tuple[int, int], ...]]:
+    # KWJAが公開する文字正規化の表を使い、独自の日本語補正は加えない。
+    from kwja.utils.constants import TRANSLATION_TABLE
 
-
-@Language.component("native_japanese_identifier_merge", retokenizes=True)
-def _merge_identifiers(doc: Doc) -> Doc:
-    # 解析する語境界を先に決め、比較lemmaも同じtokenから読む。
-    with doc.retokenize() as retokenizer:
-        for span in _identifier_spans(doc):
-            retokenizer.merge(span, attrs={"LEMMA": span.text})
-    return doc
-
-
-def validate_doc(doc: Doc, text: str):
-    """原文と公開Tokenの文字列・全位置・空白を照合する。"""
-    if doc.text != text or "".join(token.text_with_ws for token in doc) != text:
-        raise ValueError("解析結果が原文全文を保持していません。")
-    cursor = 0
-    for token in doc:
-        end = token.idx + len(token)
-        if (
-            not cursor <= token.idx < end <= len(text)
-            or text[token.idx : end] != token.text
-            or any(not character.isspace() for character in text[cursor : token.idx])
+    # 正規化で結合する隣接文字だけを一単位にする。同じ文字の遠隔対応を作らない。
+    units = []
+    for index, char in enumerate(text):
+        if units and (
+            combining(char)
+            or normalize("NFKC", units[-1][0] + char)
+            != normalize("NFKC", units[-1][0]) + normalize("NFKC", char)
         ):
-            raise ValueError(
-                "解析された語の文字列や位置が原文と一致しないか、空白以外の文字が抜けています。"
-            )
-        cursor = end
-    if any(not character.isspace() for character in text[cursor:]):
-        raise ValueError("原文末尾の非空白文字が解析結果にありません。")
+            value, start, _ = units.pop()
+            units.append((value + char, start, index + 1))
+        else:
+            units.append((char, index, index + 1))
+    normalized_parts, spans = [], []
+    for value, start, end in units:
+        part = normalize("NFKC", value)
+        normalized_parts.append(part)
+        spans.extend((start, end) for _ in part)
+    normalized = "".join(normalized_parts)
+    if normalized != normalize("NFKC", text):
+        raise ValueError("Unicode正規化の文字範囲を原文へ対応付けられません。")
+    chars, offsets = [], []
+    for char, span in zip(normalized, spans, strict=True):
+        translated = char.translate(TRANSLATION_TABLE)
+        for value in translated:
+            chars.append(value)
+            offsets.append(span)
+    return "".join(chars), tuple(offsets)
 
 
-def adapt_doc(
-    doc: Doc,
-    text: str,
-    *,
-    vocabulary_resources: VocabularyResources | None = None,
-    vocabulary_recorder: VocabularyRecorder | None = None,
-) -> Analysis:
-    """元Docの全情報を不変snapshotへ保存する。"""
-    validate_doc(doc, text)
-    return Analysis(
-        text,
-        doc.to_bytes(),
-        snapshot_vocabulary(doc, vocabulary_resources, recorder=vocabulary_recorder),
-    )
+def document_offsets(document: Document, text: str) -> tuple[tuple[int, int], ...]:
+    """KWJA公式正規化後の文字列を照合し、形態素位置を原文へ対応付ける。"""
+    source, mapping = _normalized_source(text)
+    offsets, cursor = [], 0
+    for morpheme in document.morphemes:
+        selected = []
+        for char in morpheme.text:
+            if not char.isspace():
+                while cursor < len(source) and source[cursor].isspace():
+                    cursor += 1
+            if cursor >= len(source) or source[cursor] != char:
+                raise ValueError("KWJAの形態素と公式正規化後の原文が一致しません。")
+            selected.append(mapping[cursor])
+            cursor += 1
+        if not selected:
+            raise ValueError("KWJAの形態素に原文位置を対応付けられません。")
+        offsets.append((selected[0][0], selected[-1][1]))
+    if any(not char.isspace() for char in source[cursor:]):
+        raise ValueError("原文末尾の非空白文字がKWJAの解析結果にありません。")
+    return tuple(offsets)
+
+
+def validate_doc(document: Document, text: str, offsets=None):
+    expected = document_offsets(document, text)
+    if offsets is not None and offsets != expected:
+        raise ValueError("形態素の原文位置が公式正規化との対応に一致しません。")
+
+
+def adapt_doc(document: Document, text: str) -> Analysis:
+    """公開KNP形式の全情報と原文を独立して保存する。"""
+    return Analysis(text, document.to_knp().encode("utf-8"), document_offsets(document, text))
 
 
 class Parser:
-    """固定版の軽量モデルをNERなしで一度読み込み、呼出し間で再利用する。"""
+    """固定モデルの常駐KWJAを公式rhoknp APIから利用する。"""
 
     def __init__(self):
         for package, expected in PARSER_VERSIONS.items():
@@ -91,42 +89,42 @@ class Parser:
                 raise RuntimeError(
                     f"解析に必要なバージョンと異なります: {package}=={installed}（必要: {expected}）。"
                 )
-        self._nlp = spacy.load("ja_ginza", exclude=["ner"])
-        # C分割の補助データを元の処理で消費し、結合前の添字を後段へ残さない。
-        self._nlp.remove_pipe("compound_splitter")
-        self._nlp.add_pipe("compound_splitter", config={"split_mode": "C"}, first=True)
-        self._nlp.add_pipe("native_japanese_identifier_merge", after="compound_splitter")
-        self._vocabulary_resources = capture_vocabulary_resources(self._nlp.vocab)
-        self._vocabulary_recorder = VocabularyRecorder(self._vocabulary_resources)
-
-    def _require_nlp(self):
-        if self._nlp is None:
-            raise RuntimeError("解析器は終了しています。")
-        return self._nlp
+        self._kwja = KWJA(
+            executable=sys.executable,
+            options=[
+                "-E",
+                "-P",
+                "-X",
+                "utf8",
+                "-m",
+                "kwja.cli.cli",
+                "--model-size",
+                "base",
+                "--device",
+                "cpu",
+                "--tasks",
+                "char,word",
+                "--quiet",
+            ],
+            skip_sanity_check=True,
+        )
+        if not self._kwja.is_available():
+            raise RuntimeError("KWJAを起動できません。")
 
     def analyze(self, text: str) -> Analysis:
-        return adapt_doc(
-            self._require_nlp()(text),
-            text,
-            vocabulary_resources=self._vocabulary_resources,
-            vocabulary_recorder=self._vocabulary_recorder,
-        )
+        if self._kwja is None:
+            raise RuntimeError("解析器は終了しています。")
+        if any(line.strip() == Document.EOD for line in text.splitlines()):
+            raise ValueError("原文にKWJAの入力終端を表すEOD単独行があります。")
+        if not text.strip():
+            return adapt_doc(Document.from_knp(""), text)
+        return adapt_doc(self._kwja.apply(text, timeout=600), text)
 
     def analyze_many(self, texts: Iterable[str]) -> Iterator[Analysis]:
-        """公開nlp.pipeで順序と原文を保ち、参照本文を逐次処理する。"""
-        pipeline = self._require_nlp()
-        parsed = pipeline.pipe(((text, text) for text in texts), as_tuples=True, batch_size=32)
-        for batch in minibatch(parsed, size=32):
-            docs, originals = zip(*batch, strict=True)
-            for doc, text in batch:
-                validate_doc(doc, text)
-            snapshots = tuple(doc.to_bytes() for doc in docs)
-            vocabularies = self._vocabulary_recorder.capture_many(docs)
-            for text, snapshot, vocabulary in zip(originals, snapshots, vocabularies, strict=True):
-                yield Analysis(text, snapshot, vocabulary)
+        """モデルを再利用し、原文と順序を保って文書を逐次解析する。"""
+        for text in texts:
+            yield self.analyze(text)
 
     def close(self):
-        """所有するモデル参照を解放する。"""
-        self._nlp = None
-        self._vocabulary_resources = None
-        self._vocabulary_recorder = None
+        """所有するrhoknpプロセッサを解放する。"""
+        self._kwja = None

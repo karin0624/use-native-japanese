@@ -18,7 +18,7 @@
 
 原資料は[日本語Wikipedia dump 2019-02-01](https://archive.org/details/jawiki-20190201)です。[dump metadata](https://archive.org/metadata/jawiki-20190201)のCC BY-SA 3.0と、そこから本文抽出・区間分割した[MIRACLコーパス](https://huggingface.co/datasets/miracl/miracl-corpus)の[カード](https://huggingface.co/datasets/miracl/miracl-corpus/blob/d921ec7e349ce0d28daf30b2da9da5ee698bef0d/README.md)のApache 2.0表示を保持します。後者はWikipedia本文の再許諾ではありません。使用revisionは`4b58cd23ae34af0f77c424b98807901cf472c377`です。
 
-当方による変更は、GiNZAの元依存構造から作る述語構成・接続関係の完全一致表、用例集合のBloom filter、上記モデルで合成した異なる名詞特徴列のベクトルの等重み平均です。配布DBは派生キャッシュで、原文全文・全Doc・名詞側の元subtree graphを保持する構築用正本は配布しません。抽出契約と資源識別情報は`assets/manifest.json`に記載します。元記事・モデルの提供者が本DBを提供・公認したものではありません。
+当方による変更は、KWJAの基本句・述語項構造から作る述語構成・接続関係の完全一致表、用例集合のBloom filter、上記モデルで合成した異なる名詞特徴列のベクトルの等重み平均です。配布DBは派生キャッシュで、原文全文・全KNP解析・名詞側の元subtree graphを保持する構築用正本は配布しません。抽出契約と資源識別情報は`assets/manifest.json`に記載します。元記事・モデルの提供者が本DBを提供・公認したものではありません。
 
 元資料・モデルのCC BY-SA 3.0を保持し、派生DBには同条件§4(b)が認める後継版CC BY-SA 4.0を適用します。
 
@@ -26,10 +26,13 @@
 
 | ソフトウェア | 条件・帰属 | 原文 |
 | --- | --- | --- |
-| [GiNZA 5.3.0](https://github.com/megagonlabs/ginza/tree/v5.3.0) | MIT、Megagon Labs。公式配布物を未変更で使用 | `licenses/ginza-MIT.txt` |
+| [KWJA 2.6.0](https://github.com/ku-nlp/kwja/tree/v2.6.0) | MIT、Copyright (c) 2022 Kyoto University。公式配布物を未変更で使用 | `licenses/kwja-MIT.txt` |
+| [rhoknp 1.8.2](https://github.com/ku-nlp/rhoknp) | MIT、Copyright (c) 2022 Kyoto University。公式配布物を未変更で使用 | `licenses/rhoknp-MIT.txt` |
 | [@dataiku/uv 0.12.0](https://github.com/575-lab/uv-npm) | MIT、Copyright (c) 2025 Trevor Manz | `licenses/uv-npm-MIT.txt` |
 | [uv 0.12.0](https://github.com/astral-sh/uv/tree/0.12.0) | MIT、Copyright (c) 2025 Astral Software Inc. | `licenses/uv-MIT.txt` |
 | [compress-fasttext](https://github.com/avidale/compress-fasttext) | MIT、Copyright (c) 2020 David Dale。モデル自体の条件とは別 | `licenses/compress-fasttext-MIT.txt` |
+
+KWJAのbase解析モデルは、公式のモデル配布元からKWJAが取得する別配布物です。形態素・構文・述語項構造の解析にはchar・wordの各moduleを使います。
 
 Python本体とPython依存はuv経由で取得する別配布物で、各提供者の条件に従います。固定版・取得URL・ハッシュは`backend/uv.lock`にあります。
 
@@ -44,4 +47,5 @@ Python本体とPython依存はuv経由で取得する別配布物で、各提供
 | uv-MIT.txt | [uv](https://raw.githubusercontent.com/astral-sh/uv/0.12.0/LICENSE-MIT) |
 | uv-npm-MIT.txt | [uv-npm](https://raw.githubusercontent.com/575-lab/uv-npm/main/LICENSE) |
 | compress-fasttext-MIT.txt | [compress-fasttext](https://raw.githubusercontent.com/avidale/compress-fasttext/master/LICENSE) |
-| ginza-MIT.txt | GiNZA公式wheelの`ginza-5.3.0.dist-info/licenses/LICENSE` |
+| kwja-MIT.txt | [KWJA](https://raw.githubusercontent.com/ku-nlp/kwja/v2.6.0/LICENSE) |
+| rhoknp-MIT.txt | [rhoknp](https://raw.githubusercontent.com/ku-nlp/rhoknp/main/LICENSE) |

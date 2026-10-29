@@ -13,21 +13,29 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
     results = inspector.lint_many(["一つ目。", "二つ目。"])
 ```
 
+`Parser`は実行中のPythonから公式KWJAモジュールを`-E -P -X utf8`付きで起動し、標準入出力をUTF-8に固定する。子Pythonの設定は`PYTHONIOENCODING`・`PYTHONPATH`などの環境変数に依存せず、作業ディレクトリをモジュール検索パスへ追加しない。
+
 `Inspector`は解析器と参照を保持する。`threshold`は既定値0.35、指定範囲は-1以上1以下の有限値。`with`を使わない場合は`close()`で解放する。
 
 | メソッド | 戻り値 |
 | --- | --- |
-| `analyze(text: str)` | 原文・Docのsnapshot・語彙情報を持つ`Analysis` |
+| `analyze(text: str)` | 原文・KNPのsnapshot・形態素の原文位置を持つ`Analysis` |
 | `lint(text: str)` | `analysis`・`relations`・`diagnostics`を持つ`LintResult` |
 | `lint_many(texts: Iterable[str])` | 入力順の`tuple[LintResult, ...]` |
 
 `Inspector`は解析後の同じ`Analysis`を各`judge.assess(analysis)`へ渡し、`JudgeResult`の関係と指摘を集約する。現在の`judges`は開発途中の`PredicateJudge`一つで、`assess()`内で用法照合用viewの作成・検証と参照照会を行う。製品の目的と、追加を計画する解析機は[プロジェクト紹介](../../README.md)を参照する。
 
-`Analysis`は`text`・`snapshot`・`vocabulary: VocabularySnapshot`を持つ。`vocabulary.resources`は固定Vocab全資源、`vocabulary.generation`は解析時点の`VocabularyGeneration`への参照である。世代は親と差分snapshotを持ち、`generation_id`・`resource_id`・`parent_id`で識別する。Parser所有の`VocabularyRecorder`が追加・変更を記録し、各世代を不変値として共有する。文書のLexeme・lookups状態は`vocabulary`に分けて保持する。`Analysis.restore_doc()`は語彙情報を含めて保存したDocの独立したコピーを返す。
+`Analysis`は原文の`text`、KWJAの全KNP出力をUTF-8で保持する`snapshot: bytes`、形態素の原文範囲`offsets: tuple[tuple[int, int], ...]`を持つ。位置は`rhoknp.Morpheme.global_index`順で、0始まり・終端を含まないPython文字添字である。空白を含む原文と解析形態素の対応を保持する。`Analysis.restore_doc()`は公開APIの`rhoknp.Document.from_knp()`を使い、独立した文書を返す。
 
-`Analysis.usage_structure`は`Analysis`を参照する用法照合用の`UsageStructure`で、その`document`は用法照合に必要な語彙を持つ局所viewである。`comparison`・`predicates`・`relations`はこの用法viewを使う便利APIである。
+`Analysis.usage_structure`は`Analysis`を参照する用法照合用の`UsageStructure`で、その`document`はsnapshotから復元したネイティブな`rhoknp.Document`である。`comparison`・`predicates`・`relations`はこの用法viewを使う便利APIである。
 
-`predicates`は元述語役割の証拠付き構成と`marker_units`（markとそのfixed機能単位）、`relations`は評価辺・端点・照会・比較viewを返す。viewのToken IDと依存辺は同じsnapshotを参照する。`predicate_root`は同じ文書内のP出現を指す。`OccurrenceView`はNの全subtreeと、`noun_feature_nodes`・`noun_case_nodes`・`noun_mark_nodes`・`noun_predicate_roots`を分けて持つ。P–P関係では`Query.related_predicate`と`related_attachment`で第二Pと接続点を保持し、`Query.noun`は空になる。`Analysis.comparison.roles`と`targets`には、認識した役割と、各元辺を関係・構成内部として参照する区分や、非語彙端点・名詞表現として働かない修飾先（`non_nominal_modifier`）などの対象外理由を保持する。
+`predicates`は元解析の証拠付きの述語構成、`relations`は端点・照会・比較viewを返す。viewの形態素IDは同じsnapshotの`global_index`を参照する。`predicate_root`は同じ文書内のP出現を指す。`OccurrenceView`はNの参照範囲と語彙特徴の参照範囲を分けて持つ。
+
+N–P関係の`Query`は`dependency="N-P"`・`noun_role="noun"`・`attachment=predicate.root`で、厳密なPとNの語彙的な組み合わせを照会する。元の格・項の種類・方向・接続点は`RelationTarget`・`OccurrenceView`・KNPに保持する。P–P関係では元関係を厳密照合し、`Query.related_predicate`と`related_attachment`で第二Pと接続点を保持する。`Query.noun`は空になる。
+
+`GraphView.edges`は構成に含めた元基本句の主辞間の依存を保持する。厳密Pキーの`PredicateNode.head`・`dependency`は、その辺をP内の相対位置へ対応付ける。`Comparison.targets`の`scope="composition"`は、構成内部として保持する基本句依存を表す。述語・項・修飾関係の認定には[比較条件](../design/usage.md)を適用する。
+
+`PredicateNode.lemma`と`Query.noun`の各要素は、元形態素の`canon`、欠ける場合は`lemma/reading`を使う語彙キーである。厳密照合には表記・読み全体を保持し、fastTextの取得時だけ`rsplit("/", 1)[0]`で末尾の読みを分ける。表記中の`/`は失わない。元の基本形・読み・代表表記候補は全KNP snapshotに保持する。
 
 関係の評価には`status`（`indexed`・`supported`・`review`）、`score: float \| None`、照会ごとの支持情報を含む。現在の指摘は`range`と`message`を持ち、修正案は生成しない。全位置は0始まり・終端を含まないPython文字添字。
 
@@ -37,6 +45,7 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
 
 | コマンド | 必須引数 | 出力・作用 |
 | --- | --- | --- |
+| `setup-parser` | なし | KWJAモデルを取得し、一文の解析で起動を確認する |
 | `extract [input]` | `--source-id`・`--source-url` | 用例JSONLを標準出力へ書く |
 | `import [input]` | `--examples` | 正本DBへ取り込み、件数をJSONで返す |
 | `prepare` | `--examples`・`--reference`・`--assets-dir` | 配布参照を再構築し、件数・容量・時間をJSONで返す |
@@ -94,24 +103,20 @@ CLIの終了値は正常処理0、処理失敗1、引数の誤り2。`lint`は�
 
 ## 用例JSONL
 
-一行は次の13キーだけを持つJSONオブジェクトで、文書ごとに原解析・語彙情報・出典を交換する。
+一行は次の9キーだけを持つJSONオブジェクトで、文書ごとに原文・全解析・位置・出典を交換する。
 
 | キー | 型・値 |
 | --- | --- |
-| `schema_version` | 整数`4` |
-| `normalization_identity` | `"ginza-predicate-role-occurrence-v12"` |
+| `schema_version` | 整数`5` |
+| `normalization_identity` | [固定解析契約](../../src/native_japanese/models.py)の`NORMALIZATION_IDENTITY`と一致する文字列 |
 | `parser_versions` | [固定解析版](../../src/native_japanese/models.py)と一致するpackage名・版のオブジェクト |
 | `text` | 空文字列を含む原文全文 |
-| `doc_base64` | 原文と一致する公開`Doc.to_bytes()`全体のbase64文字列 |
-| `vocabulary_resource_id` | 共有語彙資源のSHA-256 |
-| `vocabulary_resource_base64` | 共有語彙資源のbase64文字列。同じ資源の初出行にだけ格納し、後続行は`null` |
-| `vocabulary_generation_id` | 解析時点の語彙世代ID。基底のみの場合は`null` |
-| `vocabulary_generation_base64` | 未出力の祖先から当該世代までの差分bundleのbase64文字列。同じ世代は一度だけ出力し、未出力分がなければ`null` |
-| `vocabulary_state_base64` | 文書のLexeme属性・lookups・世代IDを保持する状態のbase64文字列 |
+| `knp` | KWJAが返す全解析を保持するKNP形式の文字列 |
+| `offsets` | 形態素の`global_index`順の原文範囲`[[start, end], ...]` |
 | `source_id`・`observation_id`・`source_url` | 空白だけではない出典ID・出現ID・所在 |
 
-`extract`は原文のSHA-256を出現IDに使う。語彙資源と世代の保持範囲は[解析と比較範囲](../design/usage.md#解析と比較範囲)で定義する。基底資源と必要な祖先世代を当該行・同じストリームの先行行・正本DBから解決できなければ取り込めない。文書IDはDocのbytes・共有資源ID・世代IDを含む文書の語彙状態から計算し、語彙状態だけが異なる解析も区別する。同じ文書の全出典を保持し、NN tensorのbatch演算差でsnapshotが異なる場合でも、比較viewから同じ用法を重複排除する。
+`extract`は原文のSHA-256を出現IDに使う。文書IDは原文・KNP snapshot・形態素の位置から計算し、解析または位置が異なる文書も区別する。各行は他の行やモデルの語彙状態に依存せず復元できる。
 
-`import`は原文・Doc・語彙情報・出典を保存し、[静的view](../design/usage.md)から索引を作る。正本DBは基底資源を`vocabularies`、各差分世代を`vocabulary_generations`へ一度だけ保存し、`documents`に資源ID・世代ID・文書の語彙状態を保持する。`iter_records()`で全文・語彙情報・全出典をJSONLへ戻せ、基底と各世代のpayloadは初出だけに出力する。配布DBは厳密な述語・実共起群の存在索引、Bloom集合、名詞特徴の群平均を持つ、検査用の派生データである。
+`import`は原文・KNP解析・形態素の位置・全出典を保存し、[比較view](../design/usage.md)から索引を作る。KNP内の基本句・文節・係り受け・述語項構造・照応・特徴を削らず保存する。`iter_records()`で保存した解析・位置・全出典をJSONLへ戻せる。同じ文書の全出典を保持し、比較viewから同じ用法を重複排除する。
 
-用例JSONLと正本DBはschema 4を使う。配布参照は独立した形式で、`prepare`はN–P関係だけをBloom集合に登録するschema 4を生成する。読込はschema 4と、全関係をBloom集合に登録したschema 3に対応する。いずれも定めた解析契約との一致を必要とする。
+用例JSONLと正本DBはschema 5を使う。配布DBは独立したschema 4の形式で、厳密な述語・P–P実共起群の存在索引、厳密PとNの語彙的な組み合わせのBloom集合、同じ厳密Pに属する名詞特徴の群平均を持つ検査用の派生データである。読み込みには解析契約の一致を必要とする。

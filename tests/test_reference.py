@@ -11,7 +11,7 @@ from test_support import vector_model
 
 from native_japanese import reference
 from native_japanese.examples import Examples, extract_records, group_key, query_key
-from native_japanese.models import PredicateNode, Query
+from native_japanese.models import PredicateNode, Query, lexical_identity
 from native_japanese.parser import Parser
 from native_japanese.service import Inspector
 
@@ -26,8 +26,8 @@ def setup_reference(tmp_path, monkeypatch):
         examples.import_jsonl(
             lines(
                 record(),
-                record(replace(QUERY, noun=("北",))),
-                record(replace(QUERY, noun=("未収録",))),
+                record(replace(QUERY, noun=("北/*",))),
+                record(replace(QUERY, noun=("未収録/*",))),
             )
         )
     return source, output, tmp_path
@@ -52,13 +52,14 @@ def test_compile_indexed_and_generalization_without_archive(setup_reference, mon
         monkeypatch.setattr(
             reference.resources, "load_fixed_vector", lambda _: vector_model().model
         )
-        support = runtime.assess(replace(QUERY, noun=("西",)))
+        support = runtime.assess(replace(QUERY, noun=("西/*",)))
         assert not support.indexed and support.score == pytest.approx(-1 / np.sqrt(2))
         assert (support.comparable, support.total) == (2, 3)
-        assert runtime.assess(replace(QUERY, noun=("零",))).score is None
+        assert runtime.assess(replace(QUERY, noun=("零/*",))).score is None
 
 
 def test_every_non_noun_condition_stays_fixed(setup_reference):
+    # 索引は任意の異なるキーを混同しない。元格とN-P支持の対応は父の対照例で検証する。
     source, output, assets = setup_reference
     reference.build_reference(source, output, assets)
     with reference.Reference(output, assets) as runtime:
@@ -70,20 +71,20 @@ def test_every_non_noun_condition_stays_fixed(setup_reference):
             },
             {
                 "predicate": replace(
-                    QUERY.predicate, nodes=(replace(QUERY.predicate.nodes[0], xpos="形容詞-一般"),)
+                    QUERY.predicate, nodes=(replace(QUERY.predicate.nodes[0], xpos="形容詞-*"),)
                 )
             },
             {
                 "predicate": replace(
                     QUERY.predicate,
-                    nodes=(replace(QUERY.predicate.nodes[0], inflection=("連体形",)),),
+                    nodes=(replace(QUERY.predicate.nodes[0], inflection=("母音動詞", "タ形")),),
                 )
             },
-            {"dependency": "nsubj"},
+            {"dependency": "PAS:ガ"},
             {"attachment": 1},
             {"noun_role": "head"},
         ):
-            support = runtime.assess(replace(QUERY, noun=("西",), **changed))
+            support = runtime.assess(replace(QUERY, noun=("西/*",), **changed))
             assert not support.indexed and support.score is None and support.total == 0
 
 
@@ -96,13 +97,24 @@ def test_role_queries_roundtrip_with_original_predicate_and_argument_pos(tmp_pat
     finally:
         parser.close()
     queries = {
-        query for analysis in analyses for row in analysis.relations for query in row.queries
+        query
+        for analysis in analyses
+        for row in analysis.relations
+        if row.view is not None
+        for query in row.queries
     }
-    assert {
-        (a.restore_doc()[r.view.predicate_attachment].pos_, a.restore_doc()[r.view.noun.root].pos_)
-        for a in analyses
-        for r in a.relations
-    } == {("NOUN", "NOUN"), ("VERB", "ADJ")}
+    # 形態素の品詞と照会の接続点は、公開KNP上の同じIDを参照する。
+    for analysis in analyses:
+        document = analysis.restore_doc()
+        for relation in analysis.relations:
+            if relation.view is None:
+                continue
+            view, query = relation.view, relation.queries[0]
+            morpheme = document.morphemes[view.predicate_attachment]
+            node = query.predicate.nodes[query.attachment]
+            assert node.xpos == f"{morpheme.pos}-{morpheme.subpos}"
+            assert node.lemma == lexical_identity(morpheme)
+    assert queries
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(
@@ -121,7 +133,7 @@ def test_role_queries_roundtrip_with_original_predicate_and_argument_pos(tmp_pat
 def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
     source, output, assets = setup_reference
     reference.build_reference(source, output, assets)
-    probe = replace(QUERY, noun=("西", "西"))
+    probe = replace(QUERY, noun=("西/*", "西/*"))
     with reference.Reference(output, assets) as runtime:
         before = runtime.assess(probe)
     with Examples(source, writable=True) as examples:
@@ -130,13 +142,13 @@ def test_additions_change_mean_but_repeated_sources_do_not(setup_reference):
     with reference.Reference(output, assets) as runtime:
         assert runtime.assess(probe) == before
     with Examples(source, writable=True) as examples:
-        examples.import_jsonl(lines(record(replace(QUERY, noun=("西",)))))
+        examples.import_jsonl(lines(record(replace(QUERY, noun=("西/*",)))))
     reference.build_reference(source, output, assets)
     with reference.Reference(output, assets) as runtime:
         after = runtime.assess(probe)
         assert after.score == pytest.approx(0, abs=1e-14)
         assert (after.comparable, after.total) == (3, 4)
-        assert runtime.assess(replace(QUERY, noun=("西",))).indexed
+        assert runtime.assess(replace(QUERY, noun=("西/*",))).indexed
 
 
 def test_empty_and_zero_mean_add_no_generalization_support(tmp_path, monkeypatch):
@@ -149,16 +161,16 @@ def test_empty_and_zero_mean_add_no_generalization_support(tmp_path, monkeypatch
         assert runtime.assess(QUERY).score is None
         assert runtime.identity["groups"] == 0
     with Examples(source, writable=True) as examples:
-        examples.import_jsonl(lines(record(), record(replace(QUERY, noun=("西",)))))
+        examples.import_jsonl(lines(record(), record(replace(QUERY, noun=("西/*",)))))
     reference.build_reference(source, output, tmp_path)
     with reference.Reference(output, tmp_path) as runtime:
-        assert runtime.assess(replace(QUERY, noun=("北",))).score is None
+        assert runtime.assess(replace(QUERY, noun=("北/*",))).score is None
 
 
 def test_group_without_vectors_keeps_indexed_usage_but_adds_no_score(tmp_path, monkeypatch):
     monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
-    usage = replace(QUERY, noun=("未収録",))
+    usage = replace(QUERY, noun=("未収録/*",))
     with Examples(source, writable=True) as examples:
         examples.import_jsonl(lines(record(usage)))
     reference.build_reference(source, output, tmp_path)
@@ -244,27 +256,26 @@ def test_corrupt_reference_is_rejected(setup_reference, damage):
         reference.Reference(output, assets)
 
 
-def test_whitespace_is_not_lexical_and_original_upos_is_preserved_outside_keys(
-    tmp_path, monkeypatch
-):
-    # 元UPOSは全Docに保存し、述語構成の厳密キーにはlemma・XPOS・Inflectionを使う。
+def test_whitespace_is_not_lexical_and_native_attributes_are_preserved(tmp_path, monkeypatch):
     text = "重複を畳む。\n重複を畳む。"
     parser = Parser()
     try:
         analysis = parser.analyze(text)
         plain = parser.analyze(text.splitlines()[0])
-        doc = parser._require_nlp()(text)
     finally:
         parser.close()
-    queries = [query for relation in analysis.relations for query in relation.queries]
-    plain_query = plain.relations[0].queries[0]
+    relations = [r for r in analysis.relations if r.view is not None]
+    queries = [relation.queries[0] for relation in relations]
+    plain_query = next(r.queries[0] for r in plain.relations if r.view is not None)
     assert len(queries) == 2
-    for relation, query in zip(analysis.relations, queries, strict=True):
+    document = analysis.restore_doc()
+    for relation, query in zip(relations, queries, strict=True):
         assert query.predicate == plain_query.predicate
         assert query.noun == plain_query.noun
         assert query.dependency == plain_query.dependency
-        token = analysis.restore_doc()[relation.view.predicate_attachment]
-        assert token.pos_ == doc[token.i].pos_
+        morpheme = document.morphemes[relation.view.predicate_attachment]
+        node = query.predicate.nodes[query.attachment]
+        assert node.xpos == f"{morpheme.pos}-{morpheme.subpos}"
         assert not any(lemma.isspace() for lemma in query.noun)
     usage_count = len({query_key(query) for query in queries})
     source, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
@@ -292,18 +303,21 @@ def test_bloom_false_positive_cannot_bypass_exact_predicate_or_relation(
         monkeypatch.setattr(reference.membership, "contains", unexpected)
         changed_predicate = replace(
             QUERY.predicate,
-            nodes=(*QUERY.predicate.nodes, PredicateNode("せる", "助動詞", (), 0, "aux")),
+            nodes=(
+                *QUERY.predicate.nodes,
+                PredicateNode("せる", "助動詞-*", ("母音動詞", "基本形"), None, None),
+            ),
         )
         for query in (
             replace(QUERY, predicate=changed_predicate),
             replace(QUERY, attachment=1),
-            replace(QUERY, dependency="nsubj"),
+            replace(QUERY, dependency="PAS:ガ"),
             replace(QUERY, noun_role="head"),
         ):
             support = runtime.assess(query)
             assert not support.indexed and support.score is None
         monkeypatch.setattr(reference.membership, "contains", lambda *args: True)
-        assert runtime.assess(replace(QUERY, noun=("誤陽性",))).indexed
+        assert runtime.assess(replace(QUERY, noun=("誤陽性/*",))).indexed
 
 
 def test_bare_predicate_uses_exact_composition_without_noun_similarity(tmp_path, monkeypatch):
@@ -332,6 +346,16 @@ def test_bare_predicate_uses_exact_composition_without_noun_similarity(tmp_path,
 @pytest.fixture(scope="module")
 def usage_parser():
     parser = Parser()
+    analyze = parser.analyze
+    snapshots = {}
+
+    def once(text):
+        # 同じ原文の実解析は一度にし、各検証へ独立した不変snapshotを渡す。
+        if text not in snapshots:
+            snapshots[text] = analyze(text)
+        return replace(snapshots[text])
+
+    parser.analyze = once
     yield parser
     parser.close()
 
@@ -341,6 +365,12 @@ def compile_usages(tmp_path, monkeypatch, usage_parser):
     """構文と実際の共起は実解析・正本で確認し、名詞近似だけを決定的にする。"""
     from gensim.models import KeyedVectors
 
+    from native_japanese import service
+
+    # 文書解析は実モデルで行い、検査APIも同じ常駐プロセッサを借りる。
+    # モデルの読込・終了契約はParserの試験で確認する。
+    monkeypatch.setattr(service, "Parser", lambda: usage_parser)
+    monkeypatch.setattr(usage_parser, "close", lambda: None)
     count = 0
 
     def build(texts, *, probes=(), directions=None):
@@ -349,10 +379,10 @@ def compile_usages(tmp_path, monkeypatch, usage_parser):
         analyses = [usage_parser.analyze(text) for text in (*texts, *probes)]
         words = sorted(
             {
-                token.lemma_
+                lexical_identity(morpheme).rsplit("/", 1)[0]
                 for a in analyses
-                for token in a.restore_doc()
-                if not token.is_space and not token.is_punct
+                for morpheme in a.restore_doc().morphemes
+                if morpheme.pos != "特殊"
             }
         )
         model = KeyedVectors(vector_size=300)
@@ -456,12 +486,32 @@ def test_predicate_types_require_their_own_direct_construction(
 
 
 def test_case_difference_does_not_change_lexical_pair_support(tmp_path, compile_usages):
+    # Issue #19のユーザー要件: 同じ「父」と「似る」の組合せを両入力で支持する。
+    # 元の格・関係・表出型は保持し、N-Pの語彙照会と分けて検証する。
     output = compile_usages(("父に似る。",), probes=("父から似る。",))
     with Inspector(output, tmp_path) as inspector:
-        for text in ("父に似る。", "父から似る。"):
-            result = inspector.lint(text)
-            assert not result.diagnostics
-            assert result.relations[0].status == "indexed"
+        results = [inspector.lint(text) for text in ("父に似る。", "父から似る。")]
+    queries = []
+    for result, native_role in zip(
+        results, (("PAS:ニ", "C"), ("基本句:D", "dependent")), strict=True
+    ):
+        assert not result.diagnostics
+        row = result.relations[0]
+        assert row.status == "indexed"
+        relation = row.relation
+        query = relation.queries[0]
+        queries.append(query)
+        assert (query.dependency, query.noun_role) == ("N-P", "noun")
+        target = next(
+            target
+            for target in result.analysis.comparison.targets
+            if target.target_edge == relation.view.target_edge
+        )
+        assert (target.dependency, target.noun_role) == native_role
+        assert relation.view.target_edge[2] == native_role[0]
+        assert relation.view.predicate_attachment == target.predicate_attachment
+        assert query.attachment == query.predicate.root
+    assert queries[0] == queries[1]
 
 
 @pytest.mark.parametrize("damage", ["inner", "outer", "empty", "attachment", "role", "noun"])
@@ -499,53 +549,86 @@ def test_recognized_targets_cannot_disappear_or_query_other_targets(
 def test_input_without_recognized_targets_needs_no_review(tmp_path, compile_usages):
     output = compile_usages(("走るのが好きだ。",))
     with Inspector(output, tmp_path) as inspector:
-        for text in ("", " \n", "処理の再利用"):
+        for text in ("", " \n"):
             result = inspector.lint(text)
             assert not result.relations and not result.diagnostics
 
 
+def test_native_nominal_predicate_and_pas_are_retained_without_linguistic_gold(usage_parser):
+    # 共通の解析契約: 用言/体言というネイティブ認定を保持して同じAnalysisから参照する。
+    # 名詞句の言語的な正誤や、述語を含まないというgoldはこの入力へ付与しない。
+    analysis = usage_parser.analyze("処理の再利用")
+    document = analysis.restore_doc()
+    bp = next(bp for bp in document.base_phrases if bp.head.text == "利用")
+    assert bp.features["用言"] == "判" and "体言" in bp.features
+    argument = bp.pas.get_arguments("ヲ", relax=False)[0]
+    assert argument.type.value == "N" and argument.base_phrase.head.text == "処理"
+    row = next(r for r in analysis.relations if r.predicate_root == bp.head.global_index)
+    query = row.queries[0]
+    assert query.predicate.nodes[query.predicate.root].lemma == lexical_identity(bp.head)
+    assert (query.dependency, query.noun_role) == ("N-P", "noun")
+    target = next(t for t in analysis.comparison.targets if t.target_edge == row.view.target_edge)
+    assert (target.dependency, target.noun_role) == ("PAS:ヲ", "N")
+    assert row.view.target_edge[2] == "PAS:ヲ"
+    assert query.noun == (lexical_identity(argument.base_phrase.head),)
+    assert row.view.predicate_attachment == bp.head.global_index
+    assert row.view.noun.root == argument.base_phrase.head.global_index
+
+
 @pytest.mark.parametrize("separate_inner", [False, True])
-def test_adverbial_predicate_is_checked_even_when_main_predicate_is_supported(
+def test_auxiliary_construction_requires_its_own_direct_example(
     tmp_path, compile_usages, separate_inner
 ):
+    # 同じ用言基本句の全構成を厳密に照合し、別構成の支持で代用しない。
     text = "彼は走ろうとする。"
     sources = ("彼は仕事をする。", "走ろう。") if separate_inner else ("彼は仕事をする。",)
     output = compile_usages(sources, probes=(text,))
     with Inspector(output, tmp_path) as inspector:
         result = inspector.lint(text)
-    subject = next(row for row in result.relations if row.relation.queries[0].dependency == "nsubj")
-    outer = next(row for row in result.relations if row.relation.queries[0].dependency == "advmod")
-    inner = next(row for row in result.relations if row.relation.predicate.text == "走ろう")
-    assert subject.status == "indexed"
-    assert outer.status == "review" and outer.queries[0].support.total == 0
-    assert inner.status == ("indexed" if separate_inner else "review")
-    assert inner.relation.predicate.ranges == ((2, 5),)
+    subject = next(
+        row
+        for row in result.relations
+        if row.relation.view is not None
+        and row.relation.view.target_edge[2] == "PAS:ガ"
+        and tuple(key.rsplit("/", 1)[0] for key in row.relation.queries[0].noun) == ("彼",)
+    )
+    query = subject.relation.queries[0]
+    assert tuple(node.lemma.rsplit("/", 1)[0] for node in query.predicate.nodes) == (
+        "走る",
+        "と",
+        "する",
+    )
+    assert subject.relation.predicate.ranges == ((2, 8),)
+    assert subject.status == "review" and subject.queries[0].support.total == 0
     direct = compile_usages((text,))
     with Inspector(direct, tmp_path) as inspector:
-        assert not inspector.lint(text).diagnostics
+        direct_result = inspector.lint(text)
+    assert not direct_result.diagnostics
+    assert all(row.status == "indexed" for row in direct_result.relations)
 
 
 def pair_analysis(*, inner="内P", form="意志推量形", auxiliary="補助", standalone=False):
-    """公開Docの構造対照。実際の日本語の正誤でなく両Pの厳密参照条件を固定する。"""
-    import spacy
-    from spacy.tokens import Doc
+    """公開KNPの構造対照。両Pの構成と基本句間依存を独立に固定する。"""
+    from rhoknp import Document
 
     from native_japanese.parser import adapt_doc
 
-    words = [inner, auxiliary] + ([] if standalone else ["外P", "機能"])
-    doc = Doc(
-        spacy.blank("ja").vocab,
-        words=words,
-        spaces=[False] * len(words),
-        heads=[0, 0] if standalone else [2, 0, 2, 2],
-        deps=["ROOT", "aux"] if standalone else ["advmod", "aux", "ROOT", "aux"],
-        pos=(["VERB", "AUX"] * 2)[: len(words)],
-        tags=(["動詞-一般", "助動詞"] * 2)[: len(words)],
-        lemmas=words,
-        morphs=([f"Inflection={form}", "", "Inflection=終止形", ""])[: len(words)],
-    )
-    doc.user_data["bunsetu_bi_labels"] = (["B", "I"] * 2)[: len(words)]
-    return adapt_doc(doc, doc.text)
+    knp = [
+        "# S-ID:pair kwja:2.6.0",
+        "* -1D" if standalone else "* 1D",
+        "+ -1D <用言:動>" if standalone else "+ 1D <用言:動>",
+        f"{inner} {inner} {inner} 動詞 2 * 0 母音動詞 1 {form} 1 <基本句-主辞>",
+        f"{auxiliary} {auxiliary} {auxiliary} 助動詞 5 * 0 * 0 * 0",
+    ]
+    if not standalone:
+        knp += [
+            "* -1D",
+            "+ -1D <用言:動>",
+            "外P 外P 外P 動詞 2 * 0 母音動詞 1 基本形 2 <基本句-主辞>",
+            "機能 機能 機能 助動詞 5 * 0 * 0 * 0",
+        ]
+    document = Document.from_knp("\n".join([*knp, "EOS", ""]))
+    return adapt_doc(document, document.text)
 
 
 @pytest.mark.parametrize("changed", [{"inner": "別P"}, {"form": "連体形"}, {"auxiliary": "別補助"}])
@@ -618,27 +701,65 @@ def test_predicate_pair_requires_joint_strict_compositions(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize(
-    "text,dependency,pair",
+    "text,predicate,pair",
     [
-        ("走るのを覚える。", "advcl", False),
-        ("読むのは楽しい。", "advcl", False),
-        ("彼が走ると考える。", "ccomp", True),
-        ("本を読むために走る。", "advcl", True),
-        ("走るので疲れる。", "advcl", True),
-        ("走るのではないと考える。", "ccomp", True),
-        ("走るのが好きだと考える。", "ccomp", True),
+        ("走るのを覚える。", "覚える", False),
+        ("読むのは楽しい。", "楽しい", False),
+        ("彼が走ると考える。", "考える", True),
+        ("走るので疲れる。", "疲れる", True),
+        ("走るのではないと考える。", "考える", True),
+        ("走るのが好きだと考える。", "考える", True),
     ],
 )
-def test_nominalization_belongs_to_the_current_expression_only(
-    usage_parser, text, dependency, pair
-):
-    # 深い子節の「の」やP内部fixed機能単位を、外側Pの名詞化へ流用しない。
+def test_nominalization_belongs_to_the_current_expression_only(usage_parser, text, predicate, pair):
+    # 深い子節の名詞化と、用言全体の名詞的な役割を区別する。
     analysis = usage_parser.analyze(text)
-    row = next(r for r in analysis.relations if r.queries[0].dependency == dependency)
+    row = next(
+        r for r in analysis.relations if r.view is not None and r.predicate.text == predicate
+    )
     query = row.queries[0]
     assert (query.related_predicate is not None) is pair
     assert bool(query.noun) is not pair
     assert bool(row.view.noun_feature_nodes) is not pair
+
+
+def test_purpose_expression_preserves_native_noun_view_and_inner_predicate(usage_parser):
+    # 共通の解析契約: 元基本句/PASを参照する。離れた用言同士の辺は生成しない。
+    # 名詞表現に含まれる内側Pも、全構成を保って独立に照合する。
+    analysis = usage_parser.analyze("本を読むために走る。")
+    document = analysis.restore_doc()
+    read = next(bp for bp in document.base_phrases if bp.head.text == "読む")
+    purpose = next(bp for bp in document.base_phrases if bp.head.text == "ため")
+    run = next(bp for bp in document.base_phrases if bp.head.text == "走る")
+    assert read.parent == purpose and purpose.parent == run
+    assert "体言" in purpose.features and "節-機能-目的" in purpose.features
+    reading = next(p for p in analysis.predicates if p.graph.root == read.head.global_index)
+    assert tuple(node.lemma for node in reading.query.predicate.nodes) == tuple(
+        lexical_identity(m) for m in read.morphemes if m.pos != "特殊"
+    )
+    assert reading.query.predicate.root == reading.graph.nodes.index(read.head.global_index)
+    outer = next(
+        r
+        for r in analysis.relations
+        if r.predicate_root == run.head.global_index
+        and r.view is not None
+        and r.view.target_edge[2] == "PAS:ニ"
+    )
+    query = outer.queries[0]
+    assert (query.dependency, query.noun_role) == ("N-P", "noun")
+    target = next(t for t in analysis.comparison.targets if t.target_edge == outer.view.target_edge)
+    assert (target.dependency, target.noun_role) == ("PAS:ニ", "C")
+    assert outer.view.predicate_attachment == target.predicate_attachment
+    assert query.related_predicate is None and outer.view.related_predicate is None
+    feature_morphemes = [document.morphemes[i] for i in outer.view.noun_feature_nodes]
+    assert [m.text for m in feature_morphemes] == ["本", "読む", "ため"]
+    assert query.noun == tuple(lexical_identity(m) for m in feature_morphemes)
+    assert outer.view.noun.root == purpose.head.global_index
+    assert any(
+        row.predicate_root == reading.graph.root
+        and row.queries[0].predicate == reading.query.predicate
+        for row in analysis.relations
+    )
 
 
 def test_each_judge_receives_the_complete_independent_analysis(
@@ -656,22 +777,20 @@ def test_each_judge_receives_the_complete_independent_analysis(
             self.mutate = mutate
 
         def assess(self, analysis):
-            doc = analysis.restore_doc()
-            assert doc.to_bytes() == original
-            assert doc.user_data["用法判定が使わない情報"] == {"保持": [1, 2, 3]}
-            assert any(token.dep_ == "case" for token in doc)
-            assert any(token.text == "らし" for token in doc)
+            document = analysis.restore_doc()
+            assert document.to_knp().encode("utf-8") == original
+            assert document.base_phrases[0].features["用法判定が使わない情報"] == "保持"
+            assert any(morpheme.pos == "助詞" for morpheme in document.morphemes)
             seen.append(analysis)
             if self.mutate:
-                doc[0].lemma_ = "局所変更"
-                doc.user_data["用法判定が使わない情報"]["保持"].clear()
-                doc.tensor = np.zeros_like(doc.tensor)
+                document.morphemes[0].lemma = "局所変更"
+                document.base_phrases[0].features["用法判定が使わない情報"] = "局所変更"
             return JudgeResult(diagnostics=(Diagnostic((0, 2), "別の判定機"),))
 
     with Inspector(output, tmp_path) as inspector:
-        raw = inspector.parser._require_nlp()(text)
-        raw.user_data["用法判定が使わない情報"] = {"保持": [1, 2, 3]}
-        original = raw.to_bytes()
+        raw = inspector.analyze(text).restore_doc()
+        raw.base_phrases[0].features["用法判定が使わない情報"] = "保持"
+        original = raw.to_knp().encode("utf-8")
         analysis = adapt_doc(raw, text)
         monkeypatch.setattr(inspector.parser, "analyze", lambda _: analysis)
         inspector.judges = (Reader(True), *inspector.judges, Reader(False))

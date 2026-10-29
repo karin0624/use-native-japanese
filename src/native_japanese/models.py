@@ -1,19 +1,17 @@
 """原解析の不変snapshotと、元IDを参照する比較用の型。位置は原文の文字添字。"""
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from functools import cached_property
 
-from .vocabulary import VocabularySnapshot, restore_vocabulary
+NORMALIZATION_IDENTITY = "kwja-base-char-word-native-v1"
+PARSER_VERSIONS = {"kwja": "2.6.0", "rhoknp": "1.8.2"}
 
-NORMALIZATION_IDENTITY = "ginza-predicate-role-occurrence-v12"
-PARSER_VERSIONS = {
-    "ginza": "5.3.0",
-    "ja-ginza": "5.3.0",
-    "spacy": "3.8.16",
-    "SudachiPy": "0.6.11",
-    "SudachiDict-core": "20260723",
-}
+
+def lexical_identity(morpheme) -> str:
+    """代表表記を優先し、欠ける場合も原語の基本形と読みを区別する。"""
+    return morpheme.canon or f"{morpheme.lemma}/{morpheme.reading}"
 
 
 @dataclass(frozen=True)
@@ -56,8 +54,8 @@ class PredicateEvidence:
     token: int
     head: int
     dependency: str
-    upos: str
-    xpos: str
+    pos: str
+    subpos: str
 
 
 @dataclass(frozen=True)
@@ -111,24 +109,27 @@ class Relation:
 class Analysis:
     text: str
     snapshot: bytes = field(repr=False)
-    vocabulary: VocabularySnapshot = field(repr=False)
+    offsets: tuple[tuple[int, int], ...]
 
     @cached_property
     def document_id(self) -> str:
         return hashlib.sha256(
-            hashlib.sha256(self.snapshot).digest()
-            + bytes.fromhex(self.vocabulary.resources.resource_id)
-            + hashlib.sha256(self.vocabulary.to_bytes()).digest()
+            self.text.encode("utf-8")
+            + b"\0"
+            + self.snapshot
+            + b"\0"
+            + json.dumps(self.offsets, separators=(",", ":")).encode("ascii")
         ).hexdigest()
 
     def restore_doc(self):
-        """公開直列化から独立したDocを返す。呼出し側の変更はsnapshotへ影響しない。"""
-        from spacy.tokens import Doc
+        """公開KNP形式から独立した解析文書を復元する。"""
+        from rhoknp import Document
 
-        doc = Doc(restore_vocabulary(self.vocabulary)).from_bytes(self.snapshot)
-        if doc.text != self.text:
-            raise ValueError("原解析snapshotと原文が一致しません。")
-        return doc
+        from .parser import validate_doc
+
+        document = Document.from_knp(self.snapshot.decode("utf-8"))
+        validate_doc(document, self.text, self.offsets)
+        return document
 
     @cached_property
     def usage_structure(self):
@@ -192,8 +193,8 @@ class Comparison:
                 or any(
                     q.predicate != predicate.query.predicate
                     or q.attachment != predicate.graph.nodes.index(target.predicate_attachment)
-                    or q.dependency != target.dependency
-                    or q.noun_role != target.noun_role
+                    or q.dependency != (target.dependency if view.related_predicate else "N-P")
+                    or q.noun_role != (target.noun_role if view.related_predicate else "noun")
                     for q in relation.queries
                 )
             ):
@@ -222,11 +223,7 @@ class Comparison:
                 ):
                     raise ValueError("述語同士の照会と元の第二述語が一致しません。")
             if doc is not None:
-                noun = tuple(
-                    doc[i].lemma_
-                    for i in view.noun_feature_nodes
-                    if not doc[i].is_space and not doc[i].is_punct
-                )
+                noun = tuple(lexical_identity(doc.morphemes[i]) for i in view.noun_feature_nodes)
                 if any(q.noun != noun for q in relation.queries):
                     raise ValueError("名詞の照会と元の語彙特徴が一致しません。")
             covered.add(predicate.graph.root)

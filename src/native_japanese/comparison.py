@@ -1,10 +1,10 @@
-"""元依存木に基づき、述語構成と評価辺の参照範囲を静的に定める。"""
+"""KWJAの基本句・形態素・述語項構造を直接参照する比較view。"""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from functools import cached_property
 
-import ginza
-from spacy.tokens import Doc, Token
+from rhoknp import BasePhrase, Document
+from rhoknp.cohesion.argument import EndophoraArgument
 
 from .models import (
     Analysis,
@@ -19,380 +19,273 @@ from .models import (
     Query,
     Relation,
     RelationTarget,
+    lexical_identity,
 )
-from .vocabulary import restore_lexeme_view
 
 
 @dataclass(frozen=True)
 class UsageStructure:
-    """Analysisから用法照合用のDocと比較構造を構築する。"""
-
     analysis: Analysis
 
     @cached_property
-    def document(self) -> Doc:
-        from .parser import validate_doc
-
-        doc = Doc(restore_lexeme_view(self.analysis.vocabulary)).from_bytes(self.analysis.snapshot)
-        validate_doc(doc, self.analysis.text)
-        return doc
+    def document(self) -> Document:
+        return self.analysis.restore_doc()
 
     @cached_property
     def comparison(self) -> Comparison:
-        return comparison_views(self.document, self.analysis.document_id)
+        return comparison_views(self.document, self.analysis)
 
 
-_PREDICATIVE = frozenset({"VERB", "AUX", "ADJ"})
-_SAME_BUNSETU = frozenset({"advcl", "acl", "amod"})
-_ARGUMENT_ROLE = {
-    "nsubj": "nsubj",
-    "csubj": "nsubj",
-    "obj": "obj",
-    "iobj": "iobj",
-    "obl": "obl",
-    "ccomp": "ccomp",
-    "xcomp": "xcomp",
-    "advcl": "advcl",
-}
-_MODIFIER = frozenset({"acl", "amod"})
-_CLAUSAL = frozenset({"csubj", "ccomp", "xcomp", "advcl", "acl"})
-_XPOS_PREDICATIVE = frozenset({"動詞", "形容詞", "形状詞"})
-
-
-def _base(token: Token) -> str:
-    return token.dep_.split(":", 1)[0]
-
-
-def _lexical_inflection(token: Token) -> bool:
-    """公開された活用情報・詳細品詞・UPOS・依存関係から語彙述語の活用を判定する。"""
-    return (
-        bool(token.morph.get("Inflection"))
-        and token.tag_.split("-", 1)[0] in _XPOS_PREDICATIVE
-        and token.pos_ not in {"AUX", "SCONJ", "ADP", "PART", "CCONJ"}
-        and _base(token) not in {"aux", "cop", "fixed", "mark", "case", "compound"}
+def _lexical_morpheme(morpheme) -> bool:
+    bp = morpheme.base_phrase
+    return morpheme.pos not in {"助詞", "特殊"} or (
+        morpheme == bp.head and any(name in bp.features for name in ("用言", "体言", "準体言"))
     )
 
 
-def _predicate_roles(doc: Doc) -> tuple[PredicateEvidence, ...]:
-    """文書全体のUD情報から述語役割の根拠を収集する。"""
-    roles = []
+def _lexical_nodes(bp: BasePhrase) -> tuple[int, ...]:
+    return tuple(m.global_index for m in bp.morphemes if _lexical_morpheme(m))
 
-    def add(selected, observed, kind):
-        if selected.is_space or selected.is_punct:
-            return
-        roles.append(
-            PredicateEvidence(
-                kind,
-                selected.i,
-                observed.i,
-                observed.head.i,
-                observed.dep_,
-                observed.pos_,
-                observed.tag_,
+
+def _graph(bp: BasePhrase) -> GraphView:
+    # 同一文節で元係り先へ接続する接頭辞基本句は、公開品詞による語形成範囲である。
+    members, pending = {bp.global_index: bp}, [bp]
+    while pending:
+        current = pending.pop()
+        for child in current.children:
+            if child.phrase == bp.phrase and child.head.pos == "接頭辞":
+                if child.global_index in members:
+                    raise ValueError("語形成の基本句依存が循環しています。")
+                members[child.global_index] = child
+                pending.append(child)
+    nodes = tuple(
+        sorted(
+            m.global_index
+            for member in members.values()
+            for m in member.morphemes
+            if m.pos != "特殊" or m == member.head
+        )
+    )
+    edges = tuple(
+        sorted(
+            (
+                member.parent.head.global_index,
+                member.head.global_index,
+                "基本句:" + member.dep_type.value,
             )
-        )
-
-    for token in doc:
-        dependency = _base(token)
-        if _lexical_inflection(token):
-            add(token, token, "inflected_lexical_occurrence")
-        if dependency in _CLAUSAL:
-            add(token, token, "clausal_dependent")
-        elif dependency == "amod":
-            add(token, token, "adjectival_modifier")
-        elif dependency == "advmod" and token.pos_ in {"VERB", "ADJ"}:
-            add(token, token, "adverbial_predicate")
-        elif dependency in {"ROOT", "conj", "parataxis"}:
-            if token.pos_ in {"VERB", "ADJ"}:
-                add(token, token, "clausal_upos")
-            elif token.tag_.split("-", 1)[0] in _XPOS_PREDICATIVE:
-                add(token, token, "clausal_xpos")
-        # 項の支配と機能語の接続は、核が名詞などの非動詞述語である場合も証拠になる。
-        if dependency in {"nsubj", "csubj", "obj", "iobj", "obl", "ccomp", "xcomp"}:
-            add(token.head, token, "argument_head")
-        if dependency == "advcl":
-            add(token.head, token, "clausal_modifier_head")
-        if dependency in {"aux", "cop"}:
-            add(token.head, token, "aux_cop_head")
-    return tuple(dict.fromkeys(roles))
-
-
-def _fixed_unit(token: Token) -> tuple[Token, ...]:
-    selected = [token]
-    for member in selected:
-        selected.extend(child for child in member.children if _base(child) == "fixed")
-    return tuple(selected)
-
-
-def _construction_edge(child: Token, bunsetsu: dict[int, int]) -> bool:
-    """語形成・補助構成と、格標識・名詞化・節接続を元解析で区別する。"""
-    head, dependency = child.head, _base(child)
-    if dependency in {"aux", "cop", "compound"}:
-        return True
-    same = bunsetsu[head.i] == bunsetsu[child.i]
-    if not same:
-        return False
-    if dependency == "fixed":
-        return True
-    if dependency == "mark":
-        # GiNZAの文脈上のUPOSを使う。XPOSが動詞でもSCONJなら節接続である。
-        return any(t != child and t.pos_ in _PREDICATIVE for t in _fixed_unit(child))
-    if dependency == "nummod":
-        return head.tag_.startswith("接尾辞-") and child.pos_ == "NUM"
-    return (
-        dependency in _SAME_BUNSETU
-        and head.pos_ in _PREDICATIVE
-        and child.pos_ in _PREDICATIVE
-        and any(t.tag_ == "動詞-非自立可能" for t in (head, child))
-    )
-
-
-def _relation_targets(doc: Doc) -> tuple[RelationTarget, ...]:
-    targets = []
-    for child in doc:
-        dependency = _base(child)
-        if dependency in _ARGUMENT_ROLE:
-            p, n, role, relation = child.head, child, "dependent", _ARGUMENT_ROLE[dependency]
-        elif dependency == "advmod" and child.pos_ in {"VERB", "ADJ"}:
-            p, n, role, relation = child.head, child, "dependent", dependency
-        elif dependency in _MODIFIER:
-            p, n, role, relation = child, child.head, "head", dependency
-        else:
-            continue
-        scope = "nonlexical" if any(t.is_space or t.is_punct for t in (p, n)) else "relation"
-        targets.append(
-            RelationTarget((child.head.i, child.i, child.dep_), p.i, n.i, role, relation, scope)
-        )
-    return tuple(targets)
-
-
-def _nominalized(doc: Doc, predicate: PredicateOccurrence) -> bool:
-    # 深い子節やP内部の固定機能表現を、当該Pの名詞化の証拠にしない。
-    return any(
-        len(unit.nodes) == 1
-        and unit.root not in predicate.graph.nodes
-        and (
-            doc[unit.root].tag_ == "助詞-準体助詞"
-            or doc[unit.root].tag_.startswith("接尾辞-名詞的")
-        )
-        for unit in predicate.marker_units
-    )
-
-
-def _nominal_expression(token: Token) -> bool:
-    return not _lexical_inflection(token) and (
-        token.pos_ in {"NOUN", "PROPN", "PRON", "NUM"}
-        or _base(token) in {"nsubj", "obj", "iobj", "obl"}
-        or any(
-            _base(child) == "mark"
-            and (child.tag_ == "助詞-準体助詞" or child.tag_.startswith("接尾辞-名詞的"))
-            and len(_fixed_unit(child)) == 1
-            for child in token.children
+            for member in members.values()
+            if member != bp and member.dep_type is not None
         )
     )
+    return GraphView(bp.head.global_index, nodes, edges)
 
 
-def _graph(doc: Doc, indices: tuple[int, ...], root: int) -> GraphView:
-    selected = frozenset(indices)
-    return GraphView(
-        root,
-        indices,
-        tuple(
-            (doc[i].head.i, i, doc[i].dep_)
-            for i in indices
-            if doc[i].head.i in selected and doc[i].head.i != i
-        ),
-    )
-
-
-def _canonical(doc: Doc, graph: GraphView) -> PredicateGraph:
-    local = {i: j for j, i in enumerate(graph.nodes)}
+def _canonical(document: Document, graph: GraphView) -> PredicateGraph:
+    local = {token: index for index, token in enumerate(graph.nodes)}
+    edges = {child: (local[head], dependency) for head, child, dependency in graph.edges}
     return PredicateGraph(
         local[graph.root],
         tuple(
             PredicateNode(
-                doc[i].lemma_,
-                doc[i].tag_,
-                tuple(doc[i].morph.get("Inflection")),
-                None if i == graph.root else local[doc[i].head.i],
-                None if i == graph.root else doc[i].dep_,
+                lexical_identity(m),
+                f"{m.pos}-{m.subpos}",
+                (m.conjtype, m.conjform),
+                edges[i][0] if i in edges else None,
+                edges[i][1] if i in edges else None,
             )
             for i in graph.nodes
+            for m in (document.morphemes[i],)
         ),
     )
 
 
-def _endpoint(doc: Doc, indices: tuple[int, ...]) -> Endpoint:
-    if not indices:
-        raise ValueError("原文位置を示す語がありません。")
-    ranges = []
-    for i in indices:
-        token = doc[i]
-        span = (token.idx, token.idx + len(token))
-        if ranges and ranges[-1][1] == span[0]:
-            ranges[-1] = (ranges[-1][0], span[1])
+def _subtree(bp: BasePhrase) -> tuple[BasePhrase, ...]:
+    selected, pending = [], [bp]
+    while pending:
+        current = pending.pop()
+        if current in selected:
+            raise ValueError("基本句の係り受けが循環しています。")
+        selected.append(current)
+        pending.extend(current.children)
+    return tuple(sorted(selected, key=lambda item: item.global_index))
+
+
+def _endpoint(analysis: Analysis, nodes: tuple[int, ...]) -> Endpoint:
+    spans = []
+    for i in sorted(nodes):
+        start, end = analysis.offsets[i]
+        if spans and start <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], end))
         else:
-            ranges.append(span)
-    return Endpoint(doc.text[ranges[0][0] : ranges[-1][1]], tuple(ranges))
+            spans.append((start, end))
+    if not spans:
+        raise ValueError("比較範囲に原文位置がありません。")
+    return Endpoint(analysis.text[spans[0][0] : spans[-1][1]], tuple(spans))
 
 
-def comparison_views(doc: Doc, document_id: str) -> Comparison:
-    """構成内部の元辺と、構成間の元対象辺を分けて参照する。"""
-    from .parser import validate_doc
-
-    validate_doc(doc, doc.text)
-    roles = _predicate_roles(doc)
-    targets = _relation_targets(doc)
-    bunsetsu = {}
-    for token in doc:
-        span = ginza.bunsetu_span(token)
-        if span.doc is not doc or not span.start <= token.i < span.end:
-            raise ValueError("解析された文節に中心となる語が含まれていません。")
-        bunsetsu[token.i] = span.start
-
-    adjacency = {token.i: [] for token in doc}
-    for child in doc:
-        head = child.head
-        if head == child or any(t.is_space or t.is_punct for t in (head, child)):
+def comparison_views(document: Document, analysis: Analysis) -> Comparison:
+    """明示されたPASと基本句依存を、その解析単位・格のまま照会する。"""
+    predicates = []
+    by_bp = {}
+    for bp in document.base_phrases:
+        if "用言" not in bp.features:
             continue
-        if _construction_edge(child, bunsetsu):
-            adjacency[head.i].append(child.i)
-            adjacency[child.i].append(head.i)
-
-    components = {}
-    graphs = {}
-    canonical = {}
-    for token in doc:
-        if token.i in components or token.is_space or token.is_punct:
-            continue
-        selected = {token.i}
-        queue = [token.i]
-        while queue:
-            for i in adjacency[queue.pop()]:
-                if i not in selected:
-                    selected.add(i)
-                    queue.append(i)
-        indices = tuple(sorted(selected))
-        roots = [i for i in indices if doc[i].head.i not in selected or doc[i].head.i == i]
-        if len(roots) != 1:
-            raise ValueError("述語構成の元依存木に一意の根がありません。")
-        root = roots[0]
-        graph = _graph(doc, indices, root)
-        graphs[root] = graph
-        canonical[root] = _canonical(doc, graph)
-        components.update((i, root) for i in indices)
-
-    evidence = {}
-
-    for role in roles:
-        evidence.setdefault(components[role.selected_token], []).append(role)
-
-    predicates = tuple(
-        PredicateOccurrence(
-            graphs[root],
-            Query(canonical[root]),
-            tuple(dict.fromkeys(reasons)),
-            tuple(
-                _graph(doc, tuple(sorted(t.i for t in _fixed_unit(marker))), marker.i)
-                for marker in doc
-                if _base(marker) == "mark" and marker.head.i in graphs[root].nodes
-            ),
+        graph = _graph(bp)
+        if graph.root not in graph.nodes:
+            raise ValueError("用言基本句の主辞が比較範囲にありません。")
+        evidence = PredicateEvidence(
+            "用言",
+            graph.root,
+            graph.root,
+            bp.parent.head.global_index if bp.parent is not None else graph.root,
+            bp.dep_type.value if bp.dep_type is not None else "",
+            bp.head.pos,
+            bp.head.subpos,
         )
-        for root, reasons in sorted(evidence.items())
-    )
-    relations = []
-    predicate_by_root = {item.graph.root: item for item in predicates}
-    related = set()
-    resolved_targets = []
-    for target in targets:
-        if target.scope != "relation":
-            resolved_targets.append(target)
-            continue
-        p, n, role = doc[target.predicate_attachment], doc[target.noun_root], target.noun_role
-        root = components[p.i]
-        if target.dependency == "advmod" and root not in evidence:
-            if not _nominal_expression(p):
-                resolved_targets.append(replace(target, scope="non_nominal_modifier"))
-                continue
-            # 修飾先に述語役割がない場合は、語彙的な述語とその修飾対象を照会する。
-            p, n, role = n, p, "head"
-            root = components[p.i]
-            target = replace(target, predicate_attachment=p.i, noun_root=n.i, noun_role=role)
-        graph = graphs[root]
-        if n.i in graph.nodes:
-            resolved_targets.append(replace(target, scope="composition"))
-            continue
-        resolved_targets.append(target)
-        if root not in evidence:
-            raise ValueError("評価する関係の述語に、文中の役割がありません。")
-        related.add(root)
-        noun_nodes = tuple(sorted(t.i for t in n.subtree))
-        excluded = {t.i for t in p.subtree} if role == "head" else set()
-        case_nodes = tuple(
-            sorted(
-                {
-                    member.i
-                    for i in noun_nodes
-                    if i != n.i and _base(doc[i]) == "case"
-                    for member in _fixed_unit(doc[i])
-                }
+        item = PredicateOccurrence(graph, Query(_canonical(document, graph)), (evidence,))
+        predicates.append(item)
+        by_bp[bp.global_index] = item
+
+    relations, targets, covered = [], [], set()
+    pas_pairs = set()
+
+    def add_relation(p_bp, n_bp, dependency, role, edge, *, nominal=False):
+        predicate = by_bp[p_bp.global_index]
+        graph = predicate.graph
+        if n_bp.head.global_index in graph.nodes:
+            targets.append(
+                RelationTarget(
+                    edge,
+                    p_bp.head.global_index,
+                    n_bp.head.global_index,
+                    role,
+                    dependency,
+                    "composition",
+                )
             )
-        )
-        feature_nodes = tuple(i for i in noun_nodes if i not in excluded and i not in case_nodes)
-        other = predicate_by_root.get(components[n.i])
-        predicative_relation = (
+            return
+        other = by_bp.get(n_bp.global_index)
+        # KWJAの体言/準体言素性に基づき、名詞化した用言の外側を名詞表現として扱う。
+        predicative = (
             other is not None
-            and not _nominalized(doc, other)
-            and _base(doc[target.target_edge[1]]) != "csubj"
-            and not (
-                role == "head"
-                and n.pos_ in {"NOUN", "PROPN", "PRON", "NUM"}
-                and not _lexical_inflection(n)
+            and not nominal
+            and not any(name in n_bp.features for name in ("体言", "準体言"))
+        )
+        branches = _subtree(n_bp)
+        all_nodes = tuple(m.global_index for bp in branches for m in bp.morphemes)
+        edges = tuple(
+            (bp.parent.head.global_index, bp.head.global_index, "基本句:" + bp.dep_type.value)
+            for bp in branches
+            if bp.parent in branches and bp.dep_type is not None
+        )
+        excluded = (
+            {m.global_index for bp in _subtree(p_bp) for m in bp.morphemes}
+            if p_bp in branches
+            else set()
+        )
+        case_nodes = tuple(
+            i
+            for i in all_nodes
+            if document.morphemes[i].pos == "助詞" and not _lexical_morpheme(document.morphemes[i])
+        )
+        features = (
+            ()
+            if predicative
+            else tuple(
+                i
+                for i in all_nodes
+                if i not in excluded
+                and i not in case_nodes
+                and _lexical_morpheme(document.morphemes[i])
             )
         )
-        if predicative_relation:
-            feature_nodes = ()
-        noun = tuple(
-            doc[i].lemma_ for i in feature_nodes if not doc[i].is_space and not doc[i].is_punct
-        )
-        if not noun and not predicative_relation:
-            raise ValueError("評価する名詞表現に語彙特徴がありません。")
+        if not features and not predicative:
+            raise ValueError("名詞表現の比較範囲に語彙がありません。")
         query = Query(
-            canonical[root],
-            graph.nodes.index(p.i),
-            target.dependency,
-            noun,
-            role,
-            other.query.predicate if predicative_relation else None,
-            other.graph.nodes.index(n.i) if predicative_relation else None,
+            predicate.query.predicate,
+            graph.nodes.index(p_bp.head.global_index),
+            dependency if predicative else "N-P",
+            tuple(lexical_identity(document.morphemes[i]) for i in features),
+            role if predicative else "noun",
+            other.query.predicate if predicative else None,
+            other.graph.nodes.index(n_bp.head.global_index) if predicative else None,
+        )
+        target = RelationTarget(
+            edge, p_bp.head.global_index, n_bp.head.global_index, role, dependency, "relation"
         )
         view = OccurrenceView(
-            document_id,
+            analysis.document_id,
             graph,
-            p.i,
-            _graph(doc, noun_nodes, n.i),
-            target.target_edge,
-            feature_nodes,
+            p_bp.head.global_index,
+            GraphView(n_bp.head.global_index, all_nodes, edges),
+            edge,
+            features,
             case_nodes,
-            tuple(i for i in noun_nodes if _base(doc[i]) == "mark"),
+            (),
             tuple(
-                item.graph.root for item in predicates if set(item.graph.nodes) <= set(noun_nodes)
+                item.graph.root for item in predicates if set(item.graph.nodes) <= set(all_nodes)
             ),
-            other.graph if predicative_relation else None,
+            other.graph if predicative else None,
         )
+        targets.append(target)
         relations.append(
-            Relation(_endpoint(doc, graph.nodes), _endpoint(doc, noun_nodes), (query,), view, root)
+            Relation(
+                _endpoint(analysis, graph.nodes),
+                _endpoint(analysis, all_nodes),
+                (query,),
+                view,
+                graph.root,
+            )
         )
+        covered.add(graph.root)
+
+    for bp in document.base_phrases:
+        if bp.global_index not in by_bp:
+            continue
+        for case, arguments in bp.pas.get_all_arguments(relax=False, include_optional=True).items():
+            for argument in arguments:
+                # 外界参照には原文位置がない。全情報はKNPへ残し、位置付き照会は行わない。
+                if not isinstance(argument, EndophoraArgument):
+                    continue
+                noun = argument.base_phrase
+                if not _lexical_nodes(noun):
+                    continue
+                dependency = "PAS:" + case
+                edge = (bp.head.global_index, noun.head.global_index, dependency)
+                add_relation(bp, noun, dependency, argument.type.value, edge)
+                pas_pairs.add(frozenset((bp.global_index, noun.global_index)))
+
+    for child in document.base_phrases:
+        parent = child.parent
+        if parent is None or child.dep_type is None:
+            continue
+        if frozenset((child.global_index, parent.global_index)) in pas_pairs:
+            continue
+        child_p, parent_p = by_bp.get(child.global_index), by_bp.get(parent.global_index)
+        dependency = "基本句:" + child.dep_type.value
+        edge = (parent.head.global_index, child.head.global_index, dependency)
+        if parent_p is not None and (
+            child_p is not None or any(name in child.features for name in ("体言", "準体言"))
+        ):
+            add_relation(parent, child, dependency, "dependent", edge)
+        elif child_p is not None and any(name in parent.features for name in ("体言", "準体言")):
+            add_relation(child, parent, dependency, "head", edge, nominal=True)
+
     for predicate in predicates:
-        if predicate.graph.root not in related:
+        if predicate.graph.root not in covered:
             relations.append(
                 Relation(
-                    _endpoint(doc, predicate.graph.nodes),
+                    _endpoint(analysis, predicate.graph.nodes),
                     None,
                     (predicate.query,),
                     predicate_root=predicate.graph.root,
                 )
             )
-    result = Comparison(predicates, tuple(relations), roles, tuple(resolved_targets))
-    result.validate(doc)
+    result = Comparison(
+        tuple(predicates),
+        tuple(relations),
+        tuple(e for p in predicates for e in p.evidence),
+        tuple(targets),
+    )
+    result.validate(document)
     return result

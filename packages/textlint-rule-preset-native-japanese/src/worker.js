@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { onExit } from "signal-exit";
 import { prepareRuntime } from "./runtime.js";
+import { terminateProcessTree } from "./processes.js";
 
 const workers = new Map();
 const children = new Set();
@@ -48,7 +49,8 @@ export class Worker {
 
     spawn(runtime) {
         const [command, ...args] = runtime.command;
-        const child = spawn(command, args, { cwd: runtime.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+        const child = spawn(command, args, { cwd: runtime.cwd, detached: process.platform !== "win32",
+            shell: false, stdio: ["pipe", "pipe", "pipe"] });
         children.add(child);
         this.child = child;
         this.buffer = "";
@@ -133,10 +135,8 @@ export class Worker {
         this.child = null;
         if (child) {
             child.stdin.destroy();
-            child.kill();
-            const force = setTimeout(() => child.kill("SIGKILL"), 1000);
-            force.unref();
-            child.once("close", () => clearTimeout(force));
+            // 解析器のsignal handlerが終了を遅らせても、孫processを残さない。
+            terminateProcessTree(child, "SIGKILL");
             for (const handle of [child, child.stdout, child.stderr]) handle?.unref?.();
         }
     }
@@ -151,4 +151,4 @@ export function getWorker(config) {
 }
 
 // 親の終了時は、終了処理中の子も含め、タイマーに頼らず回収する。
-onExit(() => { for (const child of children) child.kill("SIGKILL"); });
+onExit(() => { for (const child of children) terminateProcessTree(child, "SIGKILL"); });

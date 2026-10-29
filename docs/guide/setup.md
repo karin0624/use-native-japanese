@@ -9,10 +9,10 @@ Node.js 20.18以上と、配布された`textlint-rule-preset-native-japanese-0.
 | OS | 条件・CPU |
 | --- | --- |
 | Linux | glibc 2.28以上、x64・arm64 |
-| macOS | 13以上、x64・arm64 |
+| macOS | 14以上、arm64 |
 | Windows | 10以上、x64 |
 
-初回はネットワーク接続と、依存の取得・展開用のディスク空き容量が必要です。Pythonは自動準備されます。
+初回はネットワーク接続と、Python依存・KWJAのbase解析モデルの取得・展開用のディスク空き容量が必要です。Pythonと解析モデルは自動準備されます。
 
 ## 手順
 
@@ -26,7 +26,7 @@ npx textlint --plugin textlint-rule-preset-native-japanese --rule preset-native-
 
 ## 結果
 
-実行環境は利用者のcacheに保存され、次回から再利用されます。モデルと参照DBはパッケージに同梱されています。
+実行環境は利用者のcacheに保存され、次回から再利用されます。名詞比較用の固定ベクトルモデルと参照DBはパッケージに同梱されています。KWJAの解析モデルは初回に公式配布元から取得し、KWJAのcacheへ保存されます。
 
 指摘と終了値は[textlint仕様](../reference/textlint.md)を参照してください。
 

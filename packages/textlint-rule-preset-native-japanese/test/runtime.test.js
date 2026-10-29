@@ -9,9 +9,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyAssets } from "../src/assets.js";
+import { checkPlatform } from "../src/runtime.js";
 import { Worker, configuration } from "../src/worker.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/worker.js", import.meta.url));
+
+test("固定PyTorch wheelの対象OS・CPU・最低版に限って自動準備する", () => {
+    // torch 2.15 CPU公式wheelはmacosx_14_0_arm64・manylinux_2_28・win_amd64。
+    for (const facts of [
+        { platform: "darwin", arch: "arm64", osRelease: "23.0.0" },
+        { platform: "linux", arch: "x64", glibcVersion: "2.28" },
+        { platform: "linux", arch: "arm64", glibcVersion: "2.39" },
+        { platform: "win32", arch: "x64", osRelease: "10.0.0" }
+    ]) assert.doesNotThrow(() => checkPlatform(facts));
+    for (const facts of [
+        { platform: "darwin", arch: "x64", osRelease: "25.0.0" },
+        { platform: "darwin", arch: "arm64", osRelease: "22.0.0" },
+        { platform: "linux", arch: "x64", glibcVersion: "2.27" },
+        { platform: "linux", arch: "x64", glibcVersion: "" },
+        { platform: "win32", arch: "arm64", osRelease: "10.0.0" }
+    ]) assert.throws(() => checkPlatform(facts), /macOS 14以上のarm64/);
+});
 
 test("command省略時は並列要求の準備を共有し、準備後から応答期限を数える", async t => {
     const directory = await mkdtemp(join(tmpdir(), "native-japanese-runtime-"));
@@ -79,17 +97,22 @@ test("資源の実体は通し、LFS pointerと同サイズの改変を拒否す
     await assert.rejects(verifyAssets(directory), /SHA-256/);
 });
 
-test("親がSIGTERMで終了すると子を回収し、親の終了signalを保つ", {
+for (const closeKind of ["worker", "parent"]) test(`${closeKind}の終了時にSIGTERMを無視するKWJA相当の孫も回収する`, {
     skip: process.platform === "win32", timeout: 5_000
 }, async t => {
-    const childCode = `import { createServer } from 'node:net';
+    const grandchildCode = `import { createServer } from 'node:net';
+        process.on('SIGTERM', () => {});
         createServer().listen(0, '127.0.0.1', function () { process.stderr.write(String(this.address().port)); });`;
+    const childCode = `import { spawn } from 'node:child_process';
+        spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(grandchildCode)}],
+            { stdio: ['ignore', 'ignore', 'inherit'] });`;
     const parentCode = `import { once } from 'node:events';
         import { Worker, configuration } from ${JSON.stringify(new URL("../src/worker.js", import.meta.url).href)};
         const worker = new Worker(configuration({ command: [process.execPath, '--input-type=module', '-e', ${JSON.stringify(childCode)}] }));
         await worker.start();
         const [port] = await once(worker.child.stderr, 'data');
         process.send({ pid: worker.child.pid, port: Number(port) });
+        process.on('message', () => worker.close());
         setInterval(() => {}, 1000);`;
     const parent = spawn(process.execPath, ["--input-type=module", "-e", parentCode], {
         stdio: ["ignore", "ignore", "inherit", "ipc"]
@@ -97,7 +120,7 @@ test("親がSIGTERMで終了すると子を回収し、親の終了signalを保�
     let childPid;
     t.after(() => {
         parent.kill("SIGKILL");
-        if (childPid) { try { process.kill(childPid, "SIGKILL"); } catch {} }
+        if (childPid) { try { process.kill(-childPid, "SIGKILL"); } catch {} }
     });
     const [{ pid, port }] = await once(parent, "message");
     childPid = pid;
@@ -107,9 +130,12 @@ test("親がSIGTERMで終了すると子を回収し、親の終了signalを保�
         socket.once("error", () => resolve(false));
     });
     assert.equal(await listening(), true);
-    const exited = once(parent, "exit");
-    parent.kill("SIGTERM");
-    assert.deepEqual(await exited, [null, "SIGTERM"]);
+    if (closeKind === "worker") parent.send("close");
+    else {
+        const exited = once(parent, "exit");
+        parent.kill("SIGTERM");
+        assert.deepEqual(await exited, [null, "SIGTERM"]);
+    }
     // zombieのPIDが残るOS環境でも、生きた子のsocketが残っていないことを確かめる。
     const deadline = Date.now() + 1000;
     while (await listening()) {
