@@ -32,7 +32,7 @@
 | [uv 0.12.0](https://github.com/astral-sh/uv/tree/0.12.0) | MIT、Copyright (c) 2025 Astral Software Inc. | `licenses/uv-MIT.txt` |
 | [compress-fasttext](https://github.com/avidale/compress-fasttext) | MIT、Copyright (c) 2020 David Dale。モデル自体の条件とは別 | `licenses/compress-fasttext-MIT.txt` |
 
-KWJAのbase解析モデルは、公式のモデル配布元からKWJAが取得する別配布物です。形態素・構文・述語項構造の解析にはchar・wordの各moduleを使います。
+KWJAのbase解析モデルは、公式のモデル配布元からKWJAが取得する別配布物です。形態素・構文・述語項構造の解析には、公式の`CLIProcessor`からchar・wordの各moduleを使います。word moduleの入力上限は256または512 tokenに設定し、配布モデルのweightは変更しません。
 
 Python本体とPython依存はuv経由で取得する別配布物で、各提供者の条件に従います。固定版・取得URL・ハッシュは`backend/uv.lock`にあります。
 

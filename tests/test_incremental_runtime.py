@@ -347,7 +347,7 @@ def test_cli_extract_import_preserves_source_and_new_analysis_contract(
     extracted = capsys.readouterr().out
     record = json.loads(extracted)
     assert record["text"] == make_analysis(REFERENCE_QUERY).text
-    assert record["schema_version"] == 5
+    assert record["schema_version"] == 6
     assert record["knp"]
     assert record["offsets"] == [list(span) for span in make_analysis(REFERENCE_QUERY).offsets]
     assert record["source_id"] == "出典"

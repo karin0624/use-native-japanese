@@ -40,7 +40,9 @@
 
 ## 解析と比較範囲
 
-[Parser](../../src/native_japanese/parser.py)は、公式の`rhoknp.KWJA`からKWJAのbaseモデルを呼び出します。`char`・`word`の各moduleで、文・形態素の分割、品詞・活用、基本句・係り受け・述語項構造などを解析します。基本形・代表表記にはword moduleが辞書から付与する値を使います。位置対応にはKWJAのNFKC正規化と公開文字変換表を用い、元形態素を原文範囲へ対応付けます。正規化で文字数が変わる表記も、対応する原文の範囲を保持します。解析形態素と対応付けできない場合は処理異常にします。
+[Parser](../../src/native_japanese/parser.py)は、公式の`kwja.cli.cli.CLIProcessor`へ直接接続し、KWJAのbaseモデルを呼び出します。`char`・`word`の各moduleで、文・形態素の分割、品詞・活用、基本句・係り受け・述語項構造などを解析します。基本形・代表表記にはword moduleが辞書から付与する値を使います。位置対応にはKWJAのNFKC正規化と公開文字変換表を用い、元形態素を原文範囲へ対応付けます。正規化で文字数が変わる表記も、対応する原文の範囲を保持します。解析形態素と対応付けできない場合は処理異常にします。
+
+char moduleは各入力を一度解析します。word moduleでは、公式tokenizerによる各文の符号化長と特殊token数の合計を調べます。256 token以内なら既定の256、超える場合はencoderの`max_position_embeddings`である512を上限として、同じ公式weightと元の文境界を使って解析します。512も超える文、または元の文字を欠く解析結果は処理異常とします。512の経路は既定の学習窓より長い入力を扱うため、その範囲の解析品質を保証するものではありません。
 
 `PredicateJudge`は`Analysis`を受け取り、[UsageStructure](../../src/native_japanese/comparison.py)で元形態素の`global_index`を参照する局所viewを作ります。比較範囲の同定・照会・対応検証はこの判定機の内部で行います。
 

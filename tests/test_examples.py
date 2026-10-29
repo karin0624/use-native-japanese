@@ -8,6 +8,7 @@ import pytest
 from rhoknp import Document
 
 from native_japanese.examples import (
+    SCHEMA_VERSION,
     Examples,
     analysis_from_record,
     extract_records,
@@ -19,7 +20,14 @@ from native_japanese.examples import (
     query_key,
     validate_record,
 )
-from native_japanese.models import Analysis, PredicateGraph, PredicateNode, Query
+from native_japanese.models import (
+    NORMALIZATION_IDENTITY,
+    PARSER_VERSIONS,
+    Analysis,
+    PredicateGraph,
+    PredicateNode,
+    Query,
+)
 
 PREDICATE = PredicateGraph(
     0, (PredicateNode("比べる/くらべる", "動詞-*", ("母音動詞", "基本形"), None, None),)
@@ -157,6 +165,9 @@ def test_archive_roundtrip_preserves_complete_native_analysis_and_offsets(tmp_pa
     "changed",
     [
         {"schema_version": 4},
+        {"schema_version": 5},
+        {"normalization_identity": "kwja-base-char-word-native-v1"},
+        {"parser_versions": {"kwja": "2.5.0", "rhoknp": "1.8.2"}},
         {"normalization_identity": "ginza-predicate-role-occurrence-v12"},
         {"knp": 123},
         {"knp": ""},
@@ -273,3 +284,82 @@ def test_native_prefix_base_phrase_edges_roundtrip_through_archive_and_reference
 def test_malformed_or_cyclic_native_base_phrase_edges_are_rejected(nodes):
     with pytest.raises(ValueError):
         parse_predicate([0, nodes])
+
+
+def test_archive_contract_is_committed_for_empty_database_and_preserved_on_roundtrip(tmp_path):
+    path = tmp_path / "正本.sqlite"
+    with Examples(path, writable=True):
+        pass
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
+        stored = dict(db.execute("SELECT key,value FROM metadata"))
+        assert stored["normalization_identity"] == NORMALIZATION_IDENTITY
+        assert json.loads(stored["parser_versions"]) == PARSER_VERSIONS
+    with Examples(path, writable=True) as examples:
+        assert not list(examples.iter_records())
+        examples.import_jsonl(lines(record()))
+    with Examples(path) as examples:
+        exported = list(examples.iter_records())
+    assert exported[0]["schema_version"] == 6
+    assert exported[0]["normalization_identity"] == stored["normalization_identity"]
+    assert exported[0]["parser_versions"] == json.loads(stored["parser_versions"])
+    with Examples(tmp_path / "再取込.sqlite", writable=True) as examples:
+        examples.import_jsonl(lines(*exported))
+        assert list(examples.iter_records()) == exported
+
+
+@pytest.mark.parametrize("writable", [False, True])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "old_schema",
+        "missing_table",
+        "missing_identity",
+        "old_identity",
+        "wrong_versions",
+        "malformed_versions",
+        "extra_metadata",
+    ],
+)
+def test_unknown_or_modified_archive_contract_is_rejected_without_relabeling_or_writing(
+    tmp_path, writable, damage
+):
+    # schemaだけでは解析方針の同一性を保証できない。保存済み契約を持たない正本も拒否する。
+    path = tmp_path / "正本.sqlite"
+    with Examples(path, writable=True) as examples:
+        examples.import_jsonl(lines(record()))
+    with sqlite3.connect(path) as db:
+        if damage == "old_schema":
+            db.execute("PRAGMA user_version=5")
+        elif damage == "missing_table":
+            db.execute("DROP TABLE metadata")
+        elif damage == "missing_identity":
+            db.execute("DELETE FROM metadata WHERE key='normalization_identity'")
+        elif damage == "old_identity":
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='normalization_identity'",
+                ("kwja-base-char-word-native-v1",),
+            )
+        elif damage == "wrong_versions":
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='parser_versions'",
+                (json.dumps({**PARSER_VERSIONS, "kwja": "2.5.0"}),),
+            )
+        elif damage == "malformed_versions":
+            db.execute("UPDATE metadata SET value='{' WHERE key='parser_versions'")
+        else:
+            db.execute("INSERT INTO metadata VALUES ('unknown','value')")
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="解析契約|種類または版"):
+        with Examples(path, writable=writable) as examples:
+            pytest.fail("不明な契約の正本を開きました。")
+    assert path.read_bytes() == before
+
+
+def test_exported_record_cannot_mutate_the_fixed_parser_contract():
+    row = record()
+    expected = dict(PARSER_VERSIONS)
+    row["parser_versions"]["kwja"] = "2.5.0"
+    assert PARSER_VERSIONS == expected
+    with pytest.raises(ValueError, match="解析契約"):
+        validate_record(row)

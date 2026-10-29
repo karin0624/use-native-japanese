@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from functools import cached_property
 
-NORMALIZATION_IDENTITY = "kwja-base-char-word-native-v1"
+NORMALIZATION_IDENTITY = "kwja-base-char-word-adaptive256-512-native-v2"
 PARSER_VERSIONS = {"kwja": "2.6.0", "rhoknp": "1.8.2"}
 
 

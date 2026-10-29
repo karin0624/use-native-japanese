@@ -13,7 +13,9 @@ with Inspector(reference_path="/path/to/reference.sqlite3", assets_dir="/path/to
     results = inspector.lint_many(["一つ目。", "二つ目。"])
 ```
 
-`Parser`は実行中のPythonから公式KWJAモジュールを`-E -P -X utf8`付きで起動し、標準入出力をUTF-8に固定する。子Pythonの設定は`PYTHONIOENCODING`・`PYTHONPATH`などの環境変数に依存せず、作業ディレクトリをモジュール検索パスへ追加しない。
+`Parser`は同じPythonプロセス内で公式の`kwja.cli.cli.CLIProcessor`を使い、char・wordの各モデルを呼び出し間で保持する。公式のCLI用初期化を使い、`KWJA_CLI_MODE=1`で配布版の推論用実行経路を選ぶ。
+
+word moduleの上限は、公式tokenizerで測った各文の符号化長と特殊token数の合計に従い、256または512から選ぶ。512を超える文や原文の文字を欠く結果は例外を返す。原文・文境界・モデルweightは変更しない。解析契約は[固定識別子](../../src/native_japanese/models.py)により参照DBと照合する。
 
 `Inspector`は解析器と参照を保持する。`threshold`は既定値0.35、指定範囲は-1以上1以下の有限値。`with`を使わない場合は`close()`で解放する。
 
@@ -107,7 +109,7 @@ CLIの終了値は正常処理0、処理失敗1、引数の誤り2。`lint`は�
 
 | キー | 型・値 |
 | --- | --- |
-| `schema_version` | 整数`5` |
+| `schema_version` | 整数`6` |
 | `normalization_identity` | [固定解析契約](../../src/native_japanese/models.py)の`NORMALIZATION_IDENTITY`と一致する文字列 |
 | `parser_versions` | [固定解析版](../../src/native_japanese/models.py)と一致するpackage名・版のオブジェクト |
 | `text` | 空文字列を含む原文全文 |
@@ -119,4 +121,6 @@ CLIの終了値は正常処理0、処理失敗1、引数の誤り2。`lint`は�
 
 `import`は原文・KNP解析・形態素の位置・全出典を保存し、[比較view](../design/usage.md)から索引を作る。KNP内の基本句・文節・係り受け・述語項構造・照応・特徴を削らず保存する。`iter_records()`で保存した解析・位置・全出典をJSONLへ戻せる。同じ文書の全出典を保持し、比較viewから同じ用法を重複排除する。
 
-用例JSONLと正本DBはschema 5を使う。配布DBは独立したschema 4の形式で、厳密な述語・P–P実共起群の存在索引、厳密PとNの語彙的な組み合わせのBloom集合、同じ厳密Pに属する名詞特徴の群平均を持つ検査用の派生データである。読み込みには解析契約の一致を必要とする。
+用例JSONLと正本DBはschema 6を使う。正本DBは解析契約の`normalization_identity`・`parser_versions`をmetadataに保存し、読み込み時に現行の固定契約へ厳密照合する。schema 5や解析契約が異なる正本・JSONLは拒否し、原文からの再抽出を必要とする。書き出しで解析契約を付け替えることはしない。
+
+配布DBは独立したschema 4の形式で、厳密な述語・P–P実共起群の存在索引、厳密PとNの語彙的な組み合わせのBloom集合、同じ厳密Pに属する名詞特徴の群平均を持つ検査用の派生データである。読み込みには解析契約の一致を必要とする。

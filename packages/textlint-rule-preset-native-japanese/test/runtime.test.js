@@ -97,7 +97,7 @@ test("資源の実体は通し、LFS pointerと同サイズの改変を拒否す
     await assert.rejects(verifyAssets(directory), /SHA-256/);
 });
 
-for (const closeKind of ["worker", "parent"]) test(`${closeKind}の終了時にSIGTERMを無視するKWJA相当の孫も回収する`, {
+for (const closeKind of ["worker", "parent"]) test(`${closeKind}の終了時にSIGTERMを無視する孫も回収する`, {
     skip: process.platform === "win32", timeout: 5_000
 }, async t => {
     const grandchildCode = `import { createServer } from 'node:net';

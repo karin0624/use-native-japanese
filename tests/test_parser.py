@@ -1,17 +1,19 @@
 """KWJAの全情報、原文との対応、ネイティブ構成の照会契約を確認する。"""
 
-import os
-import subprocess
-import sys
-import time
 from dataclasses import replace
 
 import pytest
-from rhoknp import KWJA, Document
+from rhoknp import Document
 from test_examples import make_analysis
 
 from native_japanese.models import PARSER_VERSIONS
-from native_japanese.parser import Parser, _normalized_source, adapt_doc, document_offsets
+from native_japanese.parser import (
+    Parser,
+    _normalized_source,
+    _word_window,
+    adapt_doc,
+    document_offsets,
+)
 
 
 @pytest.fixture(scope="module")
@@ -100,60 +102,37 @@ def test_empty_and_whitespace_have_no_candidates_without_losing_original_text():
         assert not analysis.relations
 
 
-def test_protocol_terminator_is_rejected_before_sending_and_does_not_pollute_next_request():
-    class Processor:
+def test_original_eod_line_is_data_and_pipeline_is_closed_once():
+    class Pipeline:
         calls = []
+        closed = 0
 
-        def apply(self, text, timeout):
+        def run(self, text):
             self.calls.append(text)
-            return make_analysis().restore_doc()
+            surface = text.replace("\n", "")
+            return Document.from_knp(
+                "# S-ID:input\n* -1D\n+ -1D <体言>\n"
+                + f"{surface} * {surface} 名詞 6 普通名詞 1 * 0 * 0 <基本句-主辞>\nEOS\n"
+            )
+
+        def close(self):
+            self.closed += 1
 
     instance = Parser.__new__(Parser)
-    instance._kwja = Processor()
-    with pytest.raises(ValueError, match="入力終端"):
-        instance.analyze("本文\nEOD\n続き")
-    assert instance._kwja.calls == []
-    assert instance.analyze(make_analysis().text).comparison
-    assert len(instance._kwja.calls) == 1
+    pipeline = instance._pipeline = Pipeline()
+    instance._closed = False
+    text = "本文\nEOD\n続き"
+    analysis = instance.analyze(text)
+    assert analysis.text == text
+    assert analysis.restore_doc().text == "本文EOD続き"
+    assert pipeline.calls == [text]
     instance.close()
     instance.close()
+    assert pipeline.closed == 1
     with pytest.raises(RuntimeError, match="終了"):
         instance.analyze("本文")
     with pytest.raises(RuntimeError, match="終了"):
         list(instance.analyze_many(["本文"]))
-
-
-def test_public_kwja_processor_destruction_reaps_its_owned_child(tmp_path):
-    # rhoknp.KWJAの公開所有権で終了させる。大きなモデルの代わりに同じstdin待機を使う。
-    pid_path = tmp_path / "pid"
-    code = (
-        "import os,sys\n"
-        "from pathlib import Path\n"
-        "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
-        "for line in sys.stdin: pass\n"
-    )
-    instance = Parser.__new__(Parser)
-    instance._kwja = KWJA(
-        executable=sys.executable, options=["-c", code, str(pid_path)], skip_sanity_check=True
-    )
-    deadline = time.monotonic() + 5
-    while not pid_path.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert pid_path.exists()
-    owned_pid = int(pid_path.read_text())
-    assert instance._kwja.is_available()
-    instance.close()
-    if os.name == "nt":
-        completed = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {owned_pid}", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        assert f'"{owned_pid}"' not in completed.stdout
-    else:
-        with pytest.raises(ProcessLookupError):
-            os.kill(owned_pid, 0)
 
 
 def test_different_dependency_version_is_rejected(monkeypatch):
@@ -351,64 +330,131 @@ def test_native_nominal_head_is_not_removed_as_its_own_case_marker(
     assert analysis.snapshot == original == analysis.restore_doc().to_knp().encode("utf-8")
 
 
-def test_kwja_child_uses_the_same_python_with_environment_independent_utf8(monkeypatch, tmp_path):
-    observed = {}
+@pytest.mark.parametrize(
+    "length,expected", [(248, 256), (249, 256), (250, 512), (504, 512), (505, 512)]
+)
+def test_word_window_matches_official_loader_special_token_boundary(length, expected):
+    from types import SimpleNamespace
 
-    class Processor:
-        def __init__(self, **kwargs):
-            observed.update(kwargs)
+    class Tokenizer:
+        def __call__(self, tokens, **kwargs):
+            assert kwargs == {"is_split_into_words": True, "padding": False, "truncation": False}
+            return SimpleNamespace(input_ids=list(range(int(tokens[0]))))
 
-        def is_available(self):
-            return True
+    def document(*lengths):
+        return SimpleNamespace(
+            sentences=[
+                SimpleNamespace(morphemes=[SimpleNamespace(text=str(size))]) for size in lengths
+            ]
+        )
 
-    monkeypatch.setattr("native_japanese.parser.KWJA", Processor)
+    tokenizer = Tokenizer()
+    assert _word_window(document(length), tokenizer, 256, 512, 7) == expected
+    # 文書全体の長さではなく、元文境界の各文の長さで選ぶ。
+    assert _word_window(document(249, 249, 249), tokenizer, 256, 512, 7) == 256
+    assert [_word_window(document(size), tokenizer, 256, 512, 7) for size in (249, 250, 249)] == [
+        256,
+        512,
+        256,
+    ]
+    with pytest.raises(ValueError, match="513 tokens.*512"):
+        _word_window(document(506), tokenizer, 256, 512, 7)
+
+
+def test_direct_pipeline_runs_char_once_and_restores_the_default_word_window(tmp_path):
+    from threading import Lock
+    from types import SimpleNamespace
+
+    from native_japanese.parser import _KwjaPipeline
+
+    original = make_analysis()
+    native = original.restore_doc()
+    state = SimpleNamespace(length=249)
+    char_config, word_config = SimpleNamespace(texts=[]), SimpleNamespace(max_seq_length=256)
+    destination = tmp_path / "char.jumanpp"
+
+    class Char:
+        calls = 0
+        output = native.to_jumanpp()
+        processors = [
+            SimpleNamespace(
+                module=SimpleNamespace(
+                    hparams=SimpleNamespace(datamodule=SimpleNamespace(predict=char_config))
+                ),
+                destination=destination,
+            )
+        ]
+
+        def refresh(self):
+            pass
+
+        def run(self, documents, *, interactive):
+            assert interactive and [d.text for d in documents] == [original.text]
+            assert char_config.texts == [original.text]
+            self.calls += 1
+            destination.write_text(self.output, encoding="utf-8")
+
+    class Word:
+        windows = []
+
+        def refresh(self):
+            pass
+
+        def run(self, documents, *, interactive):
+            assert interactive and [d.text for d in documents] == [original.text]
+            self.windows.append(word_config.max_seq_length)
+            return native.to_knp()
+
+    pipeline = _KwjaPipeline.__new__(_KwjaPipeline)
+    pipeline._lock = Lock()
+    pipeline._char, pipeline._word = Char(), Word()
+    pipeline._word_config = word_config
+    pipeline._normalize_text = lambda text: text
+    pipeline._tokenizer = lambda *args, **kwargs: SimpleNamespace(input_ids=range(state.length))
+    pipeline._default_window, pipeline._encoder_window, pipeline._special_token_count = 256, 512, 7
+    for length in (249, 250, 249):
+        state.length = length
+        assert pipeline.run(original.text).to_knp() == native.to_knp()
+    assert pipeline._char.calls == 3
+    assert pipeline._word.windows == [256, 512, 256]
+    state.length = 506
+    with pytest.raises(ValueError, match="513 tokens.*512"):
+        pipeline.run(original.text)
+    assert pipeline._char.calls == 4 and pipeline._word.windows == [256, 512, 256]
+    pipeline._char.output = native.to_jumanpp().replace("東", "別")
+    with pytest.raises(ValueError, match="原文"):
+        pipeline.run(original.text)
+    assert pipeline._char.calls == 5 and pipeline._word.windows == [256, 512, 256]
+
+
+def test_failed_native_writer_is_discarded_before_the_next_input(monkeypatch):
+    native = make_analysis()
+    pipelines = []
+
+    class Pipeline:
+        def __init__(self):
+            self.partial = []
+            self.closed = False
+            pipelines.append(self)
+
+        def run(self, text):
+            if len(pipelines) == 1:
+                self.partial.append("未完了の文")
+                raise RuntimeError("公式writerの途中失敗")
+            assert not self.partial
+            return native.restore_doc()
+
+        def close(self):
+            self.closed = True
+            self.partial.clear()
+
+    monkeypatch.setattr("native_japanese.parser._KwjaPipeline", Pipeline)
     parser = Parser()
+    with pytest.raises(RuntimeError, match="途中失敗"):
+        parser.analyze(native.text)
+    assert len(pipelines) == 1 and pipelines[0].closed
+    analysis = parser.analyze(native.text)
+    assert len(pipelines) == 2 and analysis == native
+    assert not pipelines[1].partial and not pipelines[1].closed
     parser.close()
-    assert observed["executable"] == sys.executable
-    options = observed["options"]
-    assert options[:6] == ["-E", "-P", "-X", "utf8", "-m", "kwja.cli.cli"]
-    assert options[options.index("--tasks") + 1] == "char,word"
-    assert observed["skip_sanity_check"] is True
-
-    # KWJAのinput/printとrhoknpのUTF-8通信の契約を、モデルなしの実Pythonでも確認する。
-    # cwdと環境変数に置いた偽モジュールを読まず、stdioはlocaleにかかわらずUTF-8になる。
-    shadow_cwd, shadow_environment = tmp_path / "cwd", tmp_path / "environment"
-    shadow_cwd.mkdir()
-    shadow_environment.mkdir()
-    for directory in (shadow_cwd, shadow_environment):
-        for module in ("kwja", "native_japanese_utf8_probe"):
-            (directory / f"{module}.py").write_text("raise RuntimeError('shadow_imported')\n")
-    environment = {
-        **os.environ,
-        "LC_ALL": "C",
-        "PYTHONUTF8": "0",
-        "PYTHONIOENCODING": "ascii:strict",
-        "PYTHONPATH": str(shadow_environment),
-    }
-    without_safe_path = subprocess.run(
-        [observed["executable"], "-E", "-X", "utf8", "-c", "import kwja"],
-        capture_output=True,
-        cwd=shadow_cwd,
-        env=environment,
-    )
-    assert without_safe_path.returncode != 0
-    assert b"shadow_imported" in without_safe_path.stderr
-    code = (
-        "import importlib.util,sys\n"
-        "assert importlib.util.find_spec('kwja').submodule_search_locations is not None\n"
-        "assert importlib.util.find_spec('native_japanese_utf8_probe') is None\n"
-        "assert sys.flags.ignore_environment == 1 and sys.flags.utf8_mode == 1\n"
-        "assert sys.flags.safe_path is True\n"
-        "assert sys.stdin.encoding == sys.stdout.encoding == 'utf-8'\n"
-        "print(input())\n"
-    )
-    text = "日本語と😀"
-    completed = subprocess.run(
-        [observed["executable"], *options[:4], "-c", code],
-        input=(text + "\n").encode("utf-8"),
-        capture_output=True,
-        check=True,
-        env=environment,
-        cwd=shadow_cwd,
-    )
-    assert completed.stdout.decode("utf-8").strip() == text
+    assert pipelines[1].closed

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
-// KWJAを含む子孫も回収する。POSIXは専用process group、WindowsはOSのtree終了を使う。
+// 環境準備・検査に伴う子孫も回収する。POSIXは専用process group、WindowsはOSのtree終了を使う。
 export function terminateProcessTree(child, signal = "SIGTERM") {
     if (!child.pid) return;
     if (process.platform === "win32") {

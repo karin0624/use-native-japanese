@@ -67,14 +67,14 @@ flowchart TB
 
 `Inspector`は解析器と参照を呼出し間で再利用します。位置単位と通信は[API仕様](../reference/runtime.md)、本文範囲は[textlint仕様](../reference/textlint.md)で定義します。
 
-モデル・配布参照はGit LFSで管理し、npm配布物へ実体を同梱します。資源のID・ハッシュ・出典は[manifest](../../packages/textlint-rule-preset-native-japanese/assets/manifest.json)と[帰属資料](../../packages/textlint-rule-preset-native-japanese/THIRD_PARTY_NOTICES.md)にあります。原コーパス本文と正本は構築環境で管理します。
+名詞比較用の固定ベクトルモデルと配布参照はGit LFSで管理し、npm配布物へ実体を同梱します。資源のID・ハッシュ・出典は[manifest](../../packages/textlint-rule-preset-native-japanese/assets/manifest.json)と[帰属資料](../../packages/textlint-rule-preset-native-japanese/THIRD_PARTY_NOTICES.md)にあります。原コーパス本文と正本は構築環境で管理します。
 
-Pythonの取得と依存同期は既存uvへ委ね、利用者cacheへ準備します。初回は公式配布元からKWJAの解析モデルを取得し、本文を受け付ける前に起動を確認します。KWJAはPython検査器の子プロセスとして呼び出し間で再利用し、検査器の終了時は子孫も回収します。用例追加後は正本から配布参照を全量再構築し、検査器を起動し直します。
+Pythonの取得と依存同期は既存uvへ委ね、利用者cacheへ準備します。初回は公式配布元からKWJAの解析モデルを取得し、本文を受け付ける前に起動を確認します。KWJAの公式`CLIProcessor`へ同じPythonプロセス内で直接接続し、char・wordモデルを呼び出し間で再利用します。wordの上限は元の文のtoken長に応じて256または512を選び、上限超過や文字の欠落は処理異常にします。用例追加後は正本から配布参照を全量再構築し、検査器を起動し直します。
 
 保存量は異なる用法数N、群数G、次元d、文字列量L、Bloom誤認率pに対し`O(N log(1/p) + Gd + L)`です。厳密な述語索引の文字列量もLに含めます。配布集合と群平均は重複を除いた用法から構築します。正本の原解析・出典対応と、全量再構築の費用は別に増えます。
 
 ## 採用理由
 
-- [KWJA](https://github.com/ku-nlp/kwja)は形態素・基本句・文節・依存関係・述語項構造などの日本語解析情報を提供します。[rhoknpの公開API](https://rhoknp.readthedocs.io/)で解析器を呼び出し、KNP形式を保存・復元します。
+- [KWJA](https://github.com/ku-nlp/kwja)は形態素・基本句・文節・依存関係・述語項構造などの日本語解析情報を提供します。公式の`CLIProcessor`から解析モデルを呼び出し、[rhoknpの公開API](https://rhoknp.readthedocs.io/)でKNP形式を保存・復元します。
 - N–P関係のBloom集合は、厳密PとNの語彙的な組み合わせの所属判定を低確率の誤通過を許容して圧縮します。同じ厳密Pに属する名詞群平均は、検査端末への全用例ベクトルの配布を省きます。P–P関係は厳密な実共起群の存在だけで判定します。
 - [uv](https://docs.astral.sh/uv/concepts/python-versions/)へPythonの取得・依存同期を委ねます。npm側の起動処理は配布済みbinaryを解決します。

@@ -26,7 +26,7 @@ npx textlint --plugin textlint-rule-preset-native-japanese --rule preset-native-
 
 ## 結果
 
-実行環境は利用者のcacheに保存され、次回から再利用されます。名詞比較用の固定ベクトルモデルと参照DBはパッケージに同梱されています。KWJAの解析モデルは初回に公式配布元から取得し、KWJAのcacheへ保存されます。
+実行環境は利用者のcacheに保存され、次回から再利用されます。名詞比較用の固定ベクトルモデルと参照DBはパッケージに同梱されています。KWJAの解析モデルは初回に公式配布元から取得し、KWJAのcacheへ保存されます。本文解析では元の文境界を保持し、word moduleの上限512 tokenを超える文は処理異常として通知します。
 
 指摘と終了値は[textlint仕様](../reference/textlint.md)を参照してください。
 

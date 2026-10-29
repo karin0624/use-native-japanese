@@ -15,7 +15,7 @@ from .models import (
     Query,
 )
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 APPLICATION_ID = 0x4E4A4558
 SOURCE_FIELDS = ("source_id", "observation_id", "source_url")
 FIELDS = {
@@ -218,7 +218,7 @@ def extract_records(analysis: Analysis, source_id: str, source_url: str) -> Iter
         {
             "schema_version": SCHEMA_VERSION,
             "normalization_identity": NORMALIZATION_IDENTITY,
-            "parser_versions": PARSER_VERSIONS,
+            "parser_versions": dict(PARSER_VERSIONS),
             "text": analysis.text,
             "knp": analysis.snapshot.decode("utf-8"),
             "offsets": [list(span) for span in analysis.offsets],
@@ -252,6 +252,10 @@ class Examples:
         ).fetchone()
         if writable and application == version == 0 and empty:
             self.connection.executescript("""
+                BEGIN;
+                CREATE TABLE metadata (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL
+                ) WITHOUT ROWID;
                 CREATE TABLE documents (
                     id TEXT PRIMARY KEY, text TEXT NOT NULL, snapshot BLOB NOT NULL,
                     offsets TEXT NOT NULL
@@ -272,13 +276,30 @@ class Examples:
                 ) WITHOUT ROWID;
                 CREATE INDEX occurrences_by_usage ON occurrences(usage_key);
             """)
+            self.connection.executemany(
+                "INSERT INTO metadata VALUES (?,?)", self._expected_metadata().items()
+            )
             self.connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
             self.connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self.connection.commit()
         elif application != APPLICATION_ID or version != SCHEMA_VERSION:
             raise ValueError("正本DBの種類または版が一致しません。" + _REEXTRACT)
+        try:
+            metadata = dict(self.connection.execute("SELECT key,value FROM metadata"))
+        except sqlite3.DatabaseError as error:
+            raise ValueError("正本DBに解析契約のmetadataがありません。" + _REEXTRACT) from error
+        if metadata != self._expected_metadata():
+            raise ValueError("正本DBの解析契約が一致しません。" + _REEXTRACT)
         self.connection.execute("SELECT id,text,snapshot FROM documents LIMIT 0")
         self.connection.execute("SELECT key FROM predicates LIMIT 0")
         self.connection.execute("SELECT key,group_key,noun FROM usages LIMIT 0")
+
+    @staticmethod
+    def _expected_metadata():
+        return {
+            "normalization_identity": NORMALIZATION_IDENTITY,
+            "parser_versions": canonical(PARSER_VERSIONS),
+        }
 
     def __enter__(self):
         return self

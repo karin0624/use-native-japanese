@@ -134,7 +134,8 @@ try {
     console.log("資源実体の固定hash・出典・帰属と、raw corpus/構築正本/cacheを含まないfile一覧を確認しました。");
 
     const env = { ...process.env, HOME: home, USERPROFILE: home,
-        LOCALAPPDATA: home, APPDATA: home, XDG_CACHE_HOME: path.join(home, "cache") };
+        LOCALAPPDATA: home, APPDATA: home, XDG_CACHE_HOME: path.join(home, "cache"),
+        HF_HOME: path.join(home, "huggingface"), KWJA_CACHE_DIR: path.join(home, "kwja") };
     // 呼出元の開発環境を持ち込まず、製品がmanaged Pythonを選ぶことを確認する。
     for (const key of ["VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME", "PYTHONPATH", "UV_CACHE_DIR",
         "UV_PROJECT_ENVIRONMENT", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON", "UV_OFFLINE", "UV_PYTHON_DOWNLOADS"]) delete env[key];
@@ -161,7 +162,7 @@ try {
     assert.ok(baseRelative.split(path.sep).includes("python"), "PATH上のPythonではなく専用のmanaged Pythonを使います。");
 
     console.log("同じcacheとUV_OFFLINE=1で、引用したglobと同じ1引数のdocs/**/*.mdを検査します。");
-    const offline = { ...env, UV_OFFLINE: "1" };
+    const offline = { ...env, UV_OFFLINE: "1", HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" };
     const offlineStarted = performance.now();
     const second = jsonOutput(await run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--rule", "preset-native-japanese", "--format", "json", "docs/**/*.md"],
         { env: offline, statuses: [0, 1] }));
