@@ -143,9 +143,9 @@ try {
     await writeFile(path.join(project, "input.md"), texts[0]);
     await Promise.all(texts.map((text, i) => writeFile(path.join(project, "docs", `${i}.md`), text)));
     const cli = path.join(project, "node_modules/textlint/bin/textlint.js");
-    console.log("空の専用cacheから、--ruleだけの初回file検査を実行します（初回取得はnetworkを使います）。");
+    console.log("空の専用cacheから、同梱pluginとruleで初回file検査を実行します（初回取得はnetworkを使います）。");
     const firstStarted = performance.now();
-    const first = jsonOutput(await run(process.execPath, [cli, "--rule", "preset-native-japanese", "--format", "json", "input.md"],
+    const first = jsonOutput(await run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--rule", "preset-native-japanese", "--format", "json", "input.md"],
         { env, statuses: [0, 1] }));
     console.log(`初回準備とfile検査: ${((performance.now() - firstStarted) / 1000).toFixed(2)}秒。`);
     assert.equal(first.length, 1);
@@ -163,7 +163,7 @@ try {
     console.log("同じcacheとUV_OFFLINE=1で、引用したglobと同じ1引数のdocs/**/*.mdを検査します。");
     const offline = { ...env, UV_OFFLINE: "1" };
     const offlineStarted = performance.now();
-    const second = jsonOutput(await run(process.execPath, [cli, "--rule", "preset-native-japanese", "--format", "json", "docs/**/*.md"],
+    const second = jsonOutput(await run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--rule", "preset-native-japanese", "--format", "json", "docs/**/*.md"],
         { env: offline, statuses: [0, 1] }));
     console.log(`offline再起動とglob検査: ${((performance.now() - offlineStarted) / 1000).toFixed(2)}秒。`);
     assert.equal(second.length, 2);

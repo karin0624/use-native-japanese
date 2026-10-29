@@ -1,108 +1,22 @@
-import { StringSource } from "textlint-util-to-string";
 import { extname } from "node:path";
-import { parse, preprocess, postprocess } from "micromark";
+import { Processor } from "./markdown.js";
 import { configuration, getWorker } from "./worker.js";
-
-// 文書全体を解析し、引用・リストの継続行もparserの位置情報で扱う。
-function inlineSources(text) {
-    const events = postprocess(parse().document().write(preprocess()(text, undefined, true)));
-    const spans = new Map();
-    const tokens = [];
-    let current;
-    for (const [kind, token, context] of events) {
-        if (kind === "enter" && ["data", "lineEnding"].includes(token.type)) {
-            const range = [token.start.offset, token.end.offset];
-            tokens.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
-        }
-        if (kind === "enter" && token.type === "codeText") {
-            current = { raw: text.slice(token.start.offset, token.end.offset), children: [] };
-            spans.set(`${token.start.offset}:${token.end.offset}`, current);
-        } else if (kind === "exit" && token.type === "codeText") {
-            current = undefined;
-        } else if (current && kind === "enter" && ["codeTextData", "lineEnding"].includes(token.type)) {
-            const range = [token.start.offset, token.end.offset];
-            current.children.push({ type: "Str", range, raw: text.slice(...range), value: context.sliceSerialize(token) });
-        }
-    }
-    return { spans, tokens };
-}
-
-// ASTの葉とparserが返したtokenだけを接続し、Markdownの装飾位置を推測しない。
-export function plainSegments(node, codeSpans, tokens = []) {
-    const segments = [];
-    let leaves = [];
-    const flush = () => {
-        if (leaves.length) {
-            // StringSourceの親要素による装飾位置の推定を避け、元のStr範囲を保持する。
-            const source = new StringSource({ ...node, type: "Paragraph", children: leaves });
-            const text = source.toString();
-            if (text.trim()) segments.push({ node, source, text });
-        }
-        leaves = [];
-    };
-    const visit = child => {
-        if (["Strong", "Emphasis", "Delete", "Link", "LinkReference"].includes(child.type)) {
-            child.children?.forEach(visit);
-        } else if (child.type === "Code") {
-            const [start, end] = child.range;
-            const span = codeSpans.get(`${start}:${end}`);
-            if (!span || span.raw !== child.raw ||
-                node.raw.slice(start - node.range[0], end - node.range[0]) !== span.raw ||
-                span.children.map(leaf => leaf.value).join("") !== child.value ||
-                span.children.some(leaf => leaf.raw !== leaf.value || leaf.range[0] < start ||
-                    leaf.range[1] > end || leaf.range[1] - leaf.range[0] !== leaf.value.length)) {
-                throw new Error("native-japanese: インラインコードの解析結果が原文と一致しないため、指摘位置を特定できません。");
-            }
-            leaves.push(...span.children);
-        } else if (child.type === "Str" || child.type === "Break") {
-            const value = child.type === "Break" ? child.raw : child.value;
-            const [start, end] = child.range;
-            // entity/escapeなど、復元できない葉は境界として扱い、前後を連結しない。
-            if (typeof value !== "string" || child.raw !== value || end - start !== value.length ||
-                node.raw.slice(start - node.range[0], end - node.range[0]) !== value) {
-                // 継続行の字下げはparserのtoken範囲を使い、可視本文の完全一致を確認する。
-                const parts = child.type === "Str"
-                    ? tokens.filter(leaf => leaf.range[0] >= start && leaf.range[1] <= end) : [];
-                if (parts.length && parts.map(leaf => leaf.value).join("") === value &&
-                    parts.every(leaf => leaf.raw === leaf.value &&
-                        leaf.range[1] - leaf.range[0] === leaf.value.length &&
-                        node.raw.slice(leaf.range[0] - node.range[0], leaf.range[1] - node.range[0]) === leaf.raw)) {
-                    leaves.push(...parts);
-                } else {
-                    flush();
-                }
-            } else {
-                leaves.push({ ...child, type: "Str", value });
-            }
-        } else {
-            // Image、Html、未知の拡張ノードは評価対象を分離する。
-            flush();
-        }
-    };
-    node.children?.forEach(visit);
-    flush();
-    return segments;
-}
 
 // text parserが行単位に分けたParagraphを、空行までの本文へ戻す。
 function textParagraphs(document) {
-    const nodes = [];
-    const children = document.children;
+    const units = [], children = document.children;
     for (let i = 0; i < children.length; i++) {
         const first = children[i];
         if (first.type !== "Paragraph") continue;
-        let last = first;
-        const leaves = [...first.children];
+        let end = first.range[1];
         while (children[i + 1]?.type === "Break" && children[i + 2]?.type === "Paragraph") {
-            leaves.push(children[i + 1], ...children[i + 2].children);
-            last = children[i + 2];
+            end = children[i + 2].range[1];
             i += 2;
         }
-        nodes.push({ ...first, range: [first.range[0], last.range[1]],
-            raw: document.raw.slice(first.range[0], last.range[1]),
-            loc: { start: first.loc.start, end: last.loc.end }, children: leaves });
+        const text = document.raw.slice(first.range[0], end);
+        if (text.trim()) units.push({ text, offset: first.range[0] });
     }
-    return nodes;
+    return units;
 }
 
 function splitsSurrogate(text, index) {
@@ -112,18 +26,14 @@ function splitsSurrogate(text, index) {
 
 function usage(context, options = {}) {
     const config = configuration(options);
-    const nodes = [];
     const { Syntax, report, RuleError, locator } = context;
-    const collect = node => nodes.push(node);
     return {
-        [Syntax.Paragraph]: collect,
-        [Syntax.Header]: collect,
         async [`${Syntax.Document}:exit`](document) {
-            if (!nodes.length) return;
-            const { spans, tokens } = inlineSources(document.raw);
-            const paragraphs = [".txt", ".text"].includes(extname(context.getFilePath?.() ?? ""))
-                ? textParagraphs(document) : nodes;
-            const segments = paragraphs.flatMap(node => plainSegments(node, spans, tokens));
+            const isText = [".txt", ".text"].includes(extname(context.getFilePath?.() ?? ""));
+            if (!isText && !document.nativeJapanese) {
+                throw new Error("native-japanese: Markdownの検査には --plugin textlint-rule-preset-native-japanese を指定してください。");
+            }
+            const segments = isText ? textParagraphs(document) : document.children;
             const results = segments.length
                 ? await getWorker(config).request(segments.map(segment => segment.text)) : [];
             for (let i = 0; i < results.length; i++) {
@@ -137,13 +47,13 @@ function usage(context, options = {}) {
                         range[1] > segment.text.length || range.some(index => splitsSurrogate(segment.text, index))) {
                         throw new Error("native-japanese: 指摘のUTF-16範囲を読み取れないか、範囲が本文または文字の境界に合っていません。");
                     }
-                    const start = segment.source.originalIndexFromIndex(range[0]);
-                    const end = segment.source.originalIndexFromIndex(range[1], true);
+                    const start = segment.starts ? segment.starts[range[0]] : segment.offset + range[0];
+                    const end = segment.ends ? segment.ends[range[1] - 1] : segment.offset + range[1];
                     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end ||
-                        start < 0 || end > segment.node.raw.length) {
+                        start < 0 || end > document.raw.length) {
                         throw new Error("native-japanese: 指摘の位置を原文の範囲に対応付けられません。");
                     }
-                    report(segment.node, new RuleError(message, { padding: locator.range([start, end]) }));
+                    report(document, new RuleError(message, { padding: locator.range([start, end]) }));
                 };
                 for (const diagnostic of results[i].diagnostics) {
                     if (typeof diagnostic?.message !== "string" || !diagnostic.message.trim()) {
@@ -164,6 +74,7 @@ function usage(context, options = {}) {
 }
 
 export default {
+    Processor,
     rules: {
         usage
     },

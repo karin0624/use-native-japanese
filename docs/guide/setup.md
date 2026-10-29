@@ -20,8 +20,8 @@ Node.js 20.18以上と、配布された`textlint-rule-preset-native-japanese-0.
 
 ```sh
 npm install --save-dev textlint ./textlint-rule-preset-native-japanese-0.1.0.tgz
-npx textlint --rule preset-native-japanese README.md
-npx textlint --rule preset-native-japanese "docs/**/*.md"
+npx textlint --plugin textlint-rule-preset-native-japanese --rule preset-native-japanese README.md
+npx textlint --plugin textlint-rule-preset-native-japanese --rule preset-native-japanese "docs/**/*.md"
 ```
 
 ## 結果
@@ -32,6 +32,6 @@ npx textlint --rule preset-native-japanese "docs/**/*.md"
 
 ## 問題への対処
 
-`No rules found`の場合は、実行場所と`--rule preset-native-japanese`の指定を確認します。環境準備の失敗は、表示された取得先・空き容量・通信のエラーを確認してください。
+`No rules found`の場合は、実行場所と`--rule preset-native-japanese`の指定を確認します。Markdownでは`--plugin textlint-rule-preset-native-japanese`も必要です。環境準備の失敗は、表示された取得先・空き容量・通信のエラーを確認してください。
 
 このリポジトリのソースを検証する場合は、[開発手順](development.md)を使います。

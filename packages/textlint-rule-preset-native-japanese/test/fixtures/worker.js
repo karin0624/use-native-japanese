@@ -20,6 +20,11 @@ createInterface({ input: process.stdin }).on("line", line => {
         range: [match.index, match.index + match[0].length],
         message: "人工fixtureの指摘", suggestions: ["ご飯を食べる"]
     })) }));
+    if (process.argv[3] === "--diagnostic-ranges") {
+        for (const result of results) {
+            result.diagnostics = JSON.parse(process.argv[4]).map(range => ({ range, message: "人工fixtureの範囲指摘" }));
+        }
+    }
     if (process.argv[3] === "--clear-diagnostics-after-first-request" && requestCount > 1) {
         for (const result of results) result.diagnostics = [];
     }
@@ -27,5 +32,6 @@ createInterface({ input: process.stdin }).on("line", line => {
     if (texts.includes("範囲外")) results[0].diagnostics = [{ range: [0, 100], message: "不正な範囲" }];
     if (texts.includes("encoding不正")) results[0].offsetEncoding = "unicode-code-points";
     if (texts.includes("候補不正")) results[0].diagnostics = [{ range: [0, 1], message: "指摘", suggestions: [42] }];
+    if (texts.includes("説明不正")) results[0].diagnostics = [{ range: [0, 1], message: "" }];
     setTimeout(() => process.stdout.write(`${JSON.stringify({ id, results })}\n`), texts.some(text => text.includes("遅延")) ? 60 : 1);
 });
