@@ -35,10 +35,10 @@ jobs:
       - name: checkoutのPython開発環境を準備
         run: npm exec --no -- uv sync --locked --managed-python --python 3.12.13
       - name: KWJA解析モデルを準備
-        run: npm exec --no -- uv run --no-sync native-japanese setup-parser
+        run: npm exec --no -- uv run --no-sync python -E -X utf8 -m native_japanese setup-parser
       - name: checkoutのPythonテスト
         if: runner.os == 'Linux'
-        run: npm exec --no -- uv run --no-sync pytest -q
+        run: npm exec --no -- uv run --no-sync python -E -X utf8 -m pytest -q
       - name: checkoutのPython静的検査
         if: runner.os == 'Linux'
         run: npm exec --no -- uv run --no-sync ruff check src tests tools

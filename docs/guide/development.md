@@ -13,7 +13,7 @@ git lfs install
 git lfs pull
 npm ci
 npm exec --no -- uv sync --locked --managed-python --python 3.12.13
-npm exec --no -- uv run --locked native-japanese setup-parser
+npm exec --no -- uv run --locked python -E -X utf8 -m native_japanese setup-parser
 ```
 
 リポジトリのルートでcheckoutのソースを検査します。
@@ -27,7 +27,7 @@ npx textlint --plugin textlint-rule-preset-native-japanese "docs/**/*.md"
 
 ```sh
 npm test
-npm exec --no -- uv run --locked pytest
+npm exec --no -- uv run --locked python -E -X utf8 -m pytest
 npm exec --no -- uv run --locked ruff check src tests tools
 ```
 

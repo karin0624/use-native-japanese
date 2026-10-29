@@ -154,7 +154,7 @@ try {
     const environments = await findEnvironments(home);
     assert.equal(environments.length, 1, "初回準備は専用cacheの単一環境に入る必要があります。");
     const python = path.join(environments[0], process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-    const pythonInfo = jsonOutput(await run(python, ["-E", "-c", "import json,sys; print(json.dumps({'version':sys.version.split()[0],'base':sys.base_prefix,'prefix':sys.prefix}))"], { env }));
+    const pythonInfo = jsonOutput(await run(python, ["-E", "-X", "utf8", "-c", "import json,sys; print(json.dumps({'version':sys.version.split()[0],'base':sys.base_prefix,'prefix':sys.prefix}))"], { env }));
     assert.equal(pythonInfo.version, "3.12.13");
     // macOSの/varと/private/varなど、同じ領域の別名を実パスへ揃える。
     const baseRelative = path.relative(await realpath(home), await realpath(pythonInfo.base));
@@ -172,7 +172,7 @@ try {
     assert.ok(ordered.every(Boolean));
     assert.deepEqual(messages(ordered[0]), messages(first[0]));
     for (let i = 0; i < texts.length; i++) {
-        const direct = jsonOutput(await run(python, ["-E", "-m", "native_japanese", "lint",
+        const direct = jsonOutput(await run(python, ["-E", "-X", "utf8", "-m", "native_japanese", "lint",
             "--reference", path.join(assets, sourceManifest.reference.file), "--assets-dir", assets,
             path.join(project, "docs", `${i}.md`)], { cwd: path.join(installed, "backend/src"), env: offline }));
         assert.deepEqual(messages(ordered[i]), expectedMessages(direct));

@@ -4,6 +4,8 @@
 
 ## Python API
 
+APIを使うスクリプトも`uv run --locked python -E -X utf8 script.py`で起動する。文字コードの指定は[CLI](#cli)と同じ。
+
 ```python
 from native_japanese.service import Inspector
 
@@ -43,7 +45,7 @@ N–P関係の`Query`は`dependency="N-P"`・`noun_role="noun"`・`attachment=pr
 
 ## CLI
 
-`native-japanese`は`python -m native_japanese`でも呼べる。
+CLIは`uv run --locked python -E -X utf8 -m native_japanese`で呼び出す。`-X utf8`は、Jinfの辞書読み込みを含む既定の文字コードをUTF-8に固定する。`-E`によりPythonの起動設定を`PYTHONUTF8`・`PYTHONIOENCODING`などの環境変数に依存させない。
 
 | コマンド | 必須引数 | 出力・作用 |
 | --- | --- | --- |
@@ -59,9 +61,9 @@ N–P関係の`Query`は`dependency="N-P"`・`noun_role="noun"`・`attachment=pr
 用例の追加は、出典本文を抽出・確認してから取り込む。パスとURLは自分の資源へ置き換える。
 
 ```sh
-native-japanese extract --source-id source-001 --source-url https://example.org/source source.txt > /path/to/examples.jsonl
-native-japanese import --examples /path/to/archive.sqlite3 /path/to/examples.jsonl
-native-japanese prepare --examples /path/to/archive.sqlite3 --reference /path/to/reference.sqlite3 --assets-dir /path/to/assets
+uv run --locked python -E -X utf8 -m native_japanese extract --source-id source-001 --source-url https://example.org/source source.txt > /path/to/examples.jsonl
+uv run --locked python -E -X utf8 -m native_japanese import --examples /path/to/archive.sqlite3 /path/to/examples.jsonl
+uv run --locked python -E -X utf8 -m native_japanese prepare --examples /path/to/archive.sqlite3 --reference /path/to/reference.sqlite3 --assets-dir /path/to/assets
 ```
 
 `import`は不正行があれば全件を取り消し、同じ記録は一件として登録する。返す件数は`records`・`documents_added`・`predicates_added`・`usages_added`・`observations_added`。取込後は`prepare`で参照を更新し、検査器を起動し直す。検査には配布参照DBを使う。

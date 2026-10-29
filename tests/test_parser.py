@@ -1,5 +1,10 @@
 """KWJAの全情報、原文との対応、ネイティブ構成の照会契約を確認する。"""
 
+import codecs
+import json
+import os
+import subprocess
+import sys
 from dataclasses import replace
 
 import pytest
@@ -458,3 +463,39 @@ def test_failed_native_writer_is_discarded_before_the_next_input(monkeypatch):
     assert not pipelines[1].partial and not pipelines[1].closed
     parser.close()
     assert pipelines[1].closed
+
+
+def test_utf8_python_loads_official_jinf_resources_under_non_utf8_settings():
+    # Jinf 1.0.4の辞書読み込みはencoding未指定。公開Python起動設定で既定openを固定する。
+    args = ("書く", "子音動詞カ行", "基本形", "基本連用形")
+    code = (
+        "import json,locale,sys; from jinf import Jinf; "
+        "print(json.dumps({'encoding':locale.getpreferredencoding(False),"
+        "'utf8':sys.flags.utf8_mode,'ignore_environment':sys.flags.ignore_environment}),flush=True); "
+        f"print(json.dumps(Jinf()(*{ascii(args)})))"
+    )
+    environment = {
+        **os.environ,
+        "LC_ALL": "C",
+        "PYTHONCOERCECLOCALE": "0",
+        "PYTHONUTF8": "0",
+        "PYTHONIOENCODING": "ascii:strict",
+    }
+    baseline = subprocess.run(
+        [sys.executable, "-E", "-X", "utf8=0", "-c", code],
+        capture_output=True,
+        env=environment,
+    )
+    baseline_settings = json.loads(baseline.stdout.splitlines()[0])
+    if codecs.lookup(baseline_settings["encoding"]).name != "utf-8":
+        assert baseline.returncode != 0 and b"UnicodeDecodeError" in baseline.stderr
+    completed = subprocess.run(
+        [sys.executable, "-E", "-X", "utf8", "-c", code],
+        capture_output=True,
+        check=True,
+        env=environment,
+    )
+    settings, result = map(json.loads, completed.stdout.splitlines())
+    assert codecs.lookup(settings["encoding"]).name == "utf-8"
+    assert settings["utf8"] == settings["ignore_environment"] == 1
+    assert result == "書き"
