@@ -134,7 +134,8 @@ try {
     console.log("資源実体の固定hash・出典・帰属と、raw corpus/構築正本/cacheを含まないfile一覧を確認しました。");
 
     const env = { ...process.env, HOME: home, USERPROFILE: home,
-        LOCALAPPDATA: home, APPDATA: home, XDG_CACHE_HOME: path.join(home, "cache") };
+        LOCALAPPDATA: home, APPDATA: home, XDG_CACHE_HOME: path.join(home, "cache"),
+        HF_HOME: path.join(home, "huggingface"), KWJA_CACHE_DIR: path.join(home, "kwja") };
     // 呼出元の開発環境を持ち込まず、製品がmanaged Pythonを選ぶことを確認する。
     for (const key of ["VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME", "PYTHONPATH", "UV_CACHE_DIR",
         "UV_PROJECT_ENVIRONMENT", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON", "UV_OFFLINE", "UV_PYTHON_DOWNLOADS"]) delete env[key];
@@ -153,7 +154,7 @@ try {
     const environments = await findEnvironments(home);
     assert.equal(environments.length, 1, "初回準備は専用cacheの単一環境に入る必要があります。");
     const python = path.join(environments[0], process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-    const pythonInfo = jsonOutput(await run(python, ["-E", "-c", "import json,sys; print(json.dumps({'version':sys.version.split()[0],'base':sys.base_prefix,'prefix':sys.prefix}))"], { env }));
+    const pythonInfo = jsonOutput(await run(python, ["-E", "-X", "utf8", "-c", "import json,sys; print(json.dumps({'version':sys.version.split()[0],'base':sys.base_prefix,'prefix':sys.prefix}))"], { env }));
     assert.equal(pythonInfo.version, "3.12.13");
     // macOSの/varと/private/varなど、同じ領域の別名を実パスへ揃える。
     const baseRelative = path.relative(await realpath(home), await realpath(pythonInfo.base));
@@ -161,7 +162,7 @@ try {
     assert.ok(baseRelative.split(path.sep).includes("python"), "PATH上のPythonではなく専用のmanaged Pythonを使います。");
 
     console.log("同じcacheとUV_OFFLINE=1で、引用したglobと同じ1引数のdocs/**/*.mdを検査します。");
-    const offline = { ...env, UV_OFFLINE: "1" };
+    const offline = { ...env, UV_OFFLINE: "1", HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" };
     const offlineStarted = performance.now();
     const second = jsonOutput(await run(process.execPath, [cli, "--plugin", "textlint-rule-preset-native-japanese", "--rule", "preset-native-japanese", "--format", "json", "docs/**/*.md"],
         { env: offline, statuses: [0, 1] }));
@@ -171,7 +172,7 @@ try {
     assert.ok(ordered.every(Boolean));
     assert.deepEqual(messages(ordered[0]), messages(first[0]));
     for (let i = 0; i < texts.length; i++) {
-        const direct = jsonOutput(await run(python, ["-E", "-m", "native_japanese", "lint",
+        const direct = jsonOutput(await run(python, ["-E", "-X", "utf8", "-m", "native_japanese", "lint",
             "--reference", path.join(assets, sourceManifest.reference.file), "--assets-dir", assets,
             path.join(project, "docs", `${i}.md`)], { cwd: path.join(installed, "backend/src"), env: offline }));
         assert.deepEqual(messages(ordered[i]), expectedMessages(direct));

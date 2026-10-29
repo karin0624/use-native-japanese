@@ -24,7 +24,8 @@ module.exports = {
         "preset-native-japanese": {
             usage: {
                 command: [
-                    "/path/to/.venv/bin/native-japanese", "serve",
+                    "/path/to/.venv/bin/python", "-E", "-X", "utf8",
+                    "-m", "native_japanese", "serve",
                     "--reference", "/path/to/reference.sqlite3",
                     "--assets-dir", "/path/to/assets"
                 ],
@@ -34,6 +35,8 @@ module.exports = {
     }
 };
 ```
+
+WindowsではPythonのパスを`/path/to/.venv/Scripts/python.exe`へ置き換える。`command`省略時の同梱検査器とモデルの自動準備も、UTF-8を明示したPythonで起動する。
 
 textlintではプリセット設定の上書き時にseverityが引き継がれない（[textlint #1606](https://github.com/textlint/textlint/issues/1606)）。相対パスの基準はtextlintの実行ディレクトリ。
 

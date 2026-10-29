@@ -1,4 +1,4 @@
-"""lemma合成・等票平均・不能と支持ゼロの違いを確認する。"""
+"""語彙キーの表記側の合成・等票平均・不能と支持ゼロの違いを確認する。"""
 
 import numpy as np
 import pytest
@@ -19,11 +19,12 @@ def vector_model():
     return Vectors(model)
 
 
-def test_lemmas_are_not_reparsed_and_components_have_equal_norm():
+def test_canonical_written_forms_are_not_reparsed_and_components_have_equal_norm():
     vectors = vector_model()
     result = vectors.compose(("東", "北"))
     assert result[:2] == pytest.approx((1 / np.sqrt(2),) * 2)
-    assert vectors.compose(("a/+ b",))[0] == pytest.approx(1)
+    assert vectors.compose(("a/+ b/*",))[0] == pytest.approx(1)
+    assert vectors.compose(("東/ひがし",)) == pytest.approx(vectors.compose(("東/あずま",)))
     assert vectors.compose(("東", "未収録")) is None
 
 

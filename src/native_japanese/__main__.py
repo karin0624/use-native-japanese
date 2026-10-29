@@ -84,6 +84,7 @@ def serve(inspector):
 def arguments(argv):
     parser = argparse.ArgumentParser(description="語の組み合わせを用例に照らして検査します。")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("setup-parser", help="解析モデルを取得し、解析器の起動を確認します。")
     command = commands.add_parser("prepare")
     command.add_argument("--examples", required=True)
     command.add_argument("--reference", required=True)
@@ -115,7 +116,16 @@ def main(argv=None) -> int:
                     if options.input == "-"
                     else stack.enter_context(open(options.input, encoding="utf-8", newline=""))
                 )
-            if options.command == "import":
+            if options.command == "setup-parser":
+                from .models import PARSER_VERSIONS
+                from .parser import Parser
+
+                with redirect_stdout(sys.stderr):
+                    parser = Parser()
+                    stack.callback(parser.close)
+                    parser.analyze("日本語を解析する。")
+                emit({"parser_versions": PARSER_VERSIONS})
+            elif options.command == "import":
                 examples = stack.enter_context(Examples(options.examples, writable=True))
                 emit(examples.import_jsonl(source))
             elif options.command == "prepare":

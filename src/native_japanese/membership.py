@@ -18,7 +18,7 @@ CONTRACT = {
     "filter": "BloomFilter",
     "hash": "probables.hashes.default_sha256",
     "byteorder": sys.byteorder,
-    "key": "ginza-query-canonical-json-utf8-v1",
+    "key": "kwja-query-canonical-json-utf8-v1",
     "false_positive_rate": FPR,
 }
 INTEGER_FIELDS = (

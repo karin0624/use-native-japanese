@@ -10,11 +10,10 @@
 | [textlintルール](../../packages/textlint-rule-preset-native-japanese/src/index.js) | 通常テキストの一括送信、原文への位置変換、指摘表示 |
 | [worker](../../packages/textlint-rule-preset-native-japanese/src/worker.js) | JSONL通信、要求と応答の対応、プロセス共有 |
 | [runtime](../../packages/textlint-rule-preset-native-japanese/src/runtime.js) | uvによるPython環境の準備と起動 |
-| [Parser](../../src/native_japanese/parser.py) | 原文・GiNZAのDoc・復元に必要な語彙情報を`Analysis`へ保持 |
+| [Parser](../../src/native_japanese/parser.py) | 原文・KWJAのKNP出力を`Analysis`へ保持 |
 | [Inspector](../../src/native_japanese/service.py) | 同じ`Analysis`を各判定機へ渡し、結果を集約。現在の判定機は`PredicateJudge`のみ |
 | [PredicateJudge](../../src/native_japanese/service.py) | 用法照合用の局所viewを検証し、参照照会から支持を判定 |
-| [比較view](../../src/native_japanese/comparison.py) | 用法照合で参照する元Token・辺・述語構成・関係・名詞特徴を同定 |
-| [語彙保存](../../src/native_japanese/vocabulary.py) | 固定Vocab全資源と親付きの不変な差分世代を共有し、各解析時点のVocabへ独立復元 |
+| [比較view](../../src/native_japanese/comparison.py) | 用法照合で参照する元形態素・辺・述語構成・関係・名詞特徴を同定 |
 | [Examples](../../src/native_japanese/examples.py) | 原文・解析結果・全出典を保存し、再構築可能な索引を作成 |
 | [Reference](../../src/native_japanese/reference.py) | 厳密な述語・関係索引、Bloom集合、名詞群平均の構築・読込 |
 
@@ -30,7 +29,7 @@ config:
 ---
 flowchart TB
     document[/検査する文書/] --> extract["textlint processorで文書から<br/>検査する本文と原文位置を得る"]
-    extract -->|本文をJSONLで送る| parser["GiNZAで本文を解析し<br/>単語・品詞・係り受けを得る<br/>（解析器 Parser）"]
+    extract -->|本文をJSONLで送る| parser["KWJAで本文を解析し<br/>単語・品詞・係り受けを得る<br/>（解析器 Parser）"]
     subgraph judges_group["判定機"]
         judges["用例を根拠に<br/>語の使い方を判定する<br/>（述語判定機 PredicateJudge）"]
     end
@@ -40,7 +39,7 @@ flowchart TB
     aggregate -->|照合結果と指摘文を<br/>本文内の位置とともに<br/>JSONLで返す| report["textlintルールで指摘位置を<br/>文書の原文に対応付け<br/>メッセージを表示する"]
 ```
 
-解析器は受け取った本文を原文として保持し、単語の位置・品詞・活用・係り受けなど、GiNZAが返す全解析情報を保存します。解析結果を読み戻せるよう、解析時点の語の表記・属性・単語ベクトルなどの辞書データも保持します。これらを保持する同じ`Analysis`を各判定機へ渡します。現在の用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。追加する解析機の判定方式は、それぞれの対象に応じて定めます。
+解析器は受け取った本文を原文として保持し、KWJAが返す形態素・基本句・文節・係り受け・述語項構造・照応などの全解析情報をKNP形式で保存します。公開APIの`rhoknp.Document.from_knp()`で、解析結果を独立した文書へ復元します。これらを保持する同じ`Analysis`を各判定機へ渡します。現在の用法照合では、入力と用例に共通の[比較条件](usage.md)を適用します。追加する解析機の判定方式は、それぞれの対象に応じて定めます。
 
 ### 参照の構築
 
@@ -52,7 +51,7 @@ config:
 ---
 flowchart TB
     subgraph build["構築環境"]
-        source[/出典本文と出典ID・URL/] --> extract["GiNZAで出典本文を解析し<br/>出典情報とともに書き出す"]
+        source[/出典本文と出典ID・URL/] --> extract["KWJAで出典本文を解析し<br/>出典情報とともに書き出す"]
         extract --> records[/原文・解析結果・出典情報<br/>JSONL/]
         records --> import["原文と解析結果を取り込み<br/>各出典に対応付ける"]
         import --> master[("正本SQLite<br/>原文・解析結果・全出典との対応")]
@@ -68,15 +67,14 @@ flowchart TB
 
 `Inspector`は解析器と参照を呼出し間で再利用します。位置単位と通信は[API仕様](../reference/runtime.md)、本文範囲は[textlint仕様](../reference/textlint.md)で定義します。
 
-モデル・配布参照はGit LFSで管理し、npm配布物へ実体を同梱します。資源のID・ハッシュ・出典は[manifest](../../packages/textlint-rule-preset-native-japanese/assets/manifest.json)と[帰属資料](../../packages/textlint-rule-preset-native-japanese/THIRD_PARTY_NOTICES.md)にあります。原コーパス本文と正本は構築環境で管理します。
+名詞比較用の固定ベクトルモデルと配布参照はGit LFSで管理し、npm配布物へ実体を同梱します。資源のID・ハッシュ・出典は[manifest](../../packages/textlint-rule-preset-native-japanese/assets/manifest.json)と[帰属資料](../../packages/textlint-rule-preset-native-japanese/THIRD_PARTY_NOTICES.md)にあります。原コーパス本文と正本は構築環境で管理します。
 
-Pythonの取得と依存同期は既存uvへ委ね、初回だけ利用者cacheへ準備します。用例追加後は正本から配布参照を全量再構築し、検査器を起動し直します。
+Pythonの取得と依存同期は既存uvへ委ね、利用者cacheへ準備します。初回は公式配布元からKWJAの解析モデルを取得し、本文を受け付ける前に起動を確認します。KWJAの公式`CLIProcessor`へ同じPythonプロセス内で直接接続し、char・wordモデルを呼び出し間で再利用します。wordの上限は元の文のtoken長に応じて256または512を選び、上限超過や文字の欠落は処理異常にします。用例追加後は正本から配布参照を全量再構築し、検査器を起動し直します。
 
 保存量は異なる用法数N、群数G、次元d、文字列量L、Bloom誤認率pに対し`O(N log(1/p) + Gd + L)`です。厳密な述語索引の文字列量もLに含めます。配布集合と群平均は重複を除いた用法から構築します。正本の原解析・出典対応と、全量再構築の費用は別に増えます。
 
 ## 採用理由
 
-- GiNZAは必須依存のspaCy・Sudachiを通じて語・文節・依存関係を提供します。文節の取得には[公開文節API](https://github.com/megagonlabs/ginza/blob/v5.3.0/ginza/bunsetu_recognizer.py)を使います。
-- [spaCy retokenizer](https://spacy.io/api/doc#retokenize)で識別子の境界を解析前に揃え、その境界で解析します。
-- N–P関係のBloom集合は低確率の誤通過を許容して所属判定を圧縮し、名詞群平均は検査端末への全用例ベクトルの配布を省きます。P–P関係は厳密な実共起群の存在だけで判定します。
+- [KWJA](https://github.com/ku-nlp/kwja)は形態素・基本句・文節・依存関係・述語項構造などの日本語解析情報を提供します。公式の`CLIProcessor`から解析モデルを呼び出し、[rhoknpの公開API](https://rhoknp.readthedocs.io/)でKNP形式を保存・復元します。
+- N–P関係のBloom集合は、厳密PとNの語彙的な組み合わせの所属判定を低確率の誤通過を許容して圧縮します。同じ厳密Pに属する名詞群平均は、検査端末への全用例ベクトルの配布を省きます。P–P関係は厳密な実共起群の存在だけで判定します。
 - [uv](https://docs.astral.sh/uv/concepts/python-versions/)へPythonの取得・依存同期を委ねます。npm側の起動処理は配布済みbinaryを解決します。

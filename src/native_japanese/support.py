@@ -27,7 +27,7 @@ def _checked_vector(value, size, subject):
 
 
 class Vectors:
-    """lemma列を公開合成APIへ渡し、正規化した平均ベクトルを返す。"""
+    """語彙キーの表記部を公開合成APIへ渡し、正規化した平均を返す。"""
 
     def __init__(self, model):
         self.model = model
@@ -52,7 +52,8 @@ class Vectors:
     def compose(self, components):
         if not components:
             raise ValueError("比較する語がありません。解析結果を確認してください。")
-        vectors = [self.component(lemma) for lemma in components]
+        # Jumanの代表表記は「表記/読み」。表記中のslashを失わないよう末尾だけ分ける。
+        vectors = [self.component(lexeme.rsplit("/", 1)[0]) for lexeme in components]
         if any(vector is None for vector in vectors):
             return None
         vector = _checked_vector(

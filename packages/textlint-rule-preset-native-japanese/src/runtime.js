@@ -9,6 +9,7 @@ import { release } from "node:os";
 import envPaths from "env-paths";
 import { onExit } from "signal-exit";
 import { verifyAssets } from "./assets.js";
+import { terminateProcessTree } from "./processes.js";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const PYTHON_VERSION = "3.12.13";
@@ -35,23 +36,24 @@ async function executableFromPackage(source, cache) {
     return executable;
 }
 
-function checkPlatform() {
-    const { platform, arch } = process;
+export function checkPlatform({ platform = process.platform, arch = process.arch,
+    osRelease = release(), glibcVersion = process.report.getReport().header.glibcVersionRuntime } = {}) {
     let supported = ["x64", "arm64"].includes(arch) && ["linux", "darwin"].includes(platform);
-    if (platform === "win32") supported = arch === "x64" && Number(release().split(".")[0]) >= 10;
-    if (platform === "darwin") supported &&= Number(release().split(".")[0]) >= 22;
+    if (platform === "win32") supported = arch === "x64" && Number(osRelease.split(".")[0]) >= 10;
+    if (platform === "darwin") supported = arch === "arm64" && Number(osRelease.split(".")[0]) >= 23;
     if (platform === "linux") {
-        const glibc = process.report.getReport().header.glibcVersionRuntime?.split(".").map(Number);
+        const glibc = glibcVersion?.split(".").map(Number);
         supported &&= Boolean(glibc && (glibc[0] > 2 || (glibc[0] === 2 && glibc[1] >= 28)));
     }
     if (!supported) {
-        throw new Error(`native-japanese: この環境では解析に必要な実行環境を自動で準備できません (${platform}/${arch})。Linux glibc 2.28以上・macOS 13以上のx64/arm64、Windows 10以上のx64が必要です。`);
+        throw new Error(`native-japanese: この環境では解析に必要な実行環境を自動で準備できません (${platform}/${arch})。Linux glibc 2.28以上のx64/arm64、macOS 14以上のarm64、Windows 10以上のx64が必要です。`);
     }
 }
 
-function syncEnvironment(command, args, env) {
+function syncEnvironment(command, args, env, cwd) {
     return new Promise((resolve, reject) => {
-        const child = spawn(command, args, { env, shell: false, stdio: ["ignore", "ignore", "pipe"] });
+        const child = spawn(command, args, { env, cwd, detached: process.platform !== "win32",
+            shell: false, stdio: ["ignore", "ignore", "pipe"] });
         children.add(child);
         let stderr = "";
         let timedOut = false;
@@ -59,7 +61,7 @@ function syncEnvironment(command, args, env) {
         child.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-8192); });
         const timer = setTimeout(() => {
             timedOut = true;
-            child.kill("SIGKILL");
+            terminateProcessTree(child, "SIGKILL");
             child.stderr.destroy();
             child.unref();
             reject(new Error("native-japanese: 実行環境の準備が10分以内に完了しませんでした。"));
@@ -108,6 +110,9 @@ async function prepare() {
         UV_NO_PROGRESS: "1"
     });
     const python = process.platform === "win32" ? join(environment, "Scripts/python.exe") : join(environment, "bin/python");
+    // モデル取得は本文の応答期限を使わず、実行環境の準備として完了させる。
+    await syncEnvironment(python, ["-E", "-X", "utf8", "-m", "native_japanese", "setup-parser"],
+        process.env, join(backend, "src"));
     return {
         command: [python, "-E", "-X", "utf8", "-m", "native_japanese", "serve", "--reference", join(assets, "reference.sqlite3"), "--assets-dir", assets],
         cwd: join(backend, "src")
@@ -120,4 +125,4 @@ export function prepareRuntime() {
     return preparation;
 }
 
-onExit(() => { for (const child of children) child.kill("SIGKILL"); });
+onExit(() => { for (const child of children) terminateProcessTree(child, "SIGKILL"); });

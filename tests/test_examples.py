@@ -1,58 +1,72 @@
-"""原文・Doc・全出典と、再構築できる比較索引を確認する。"""
+"""原文・KNP全情報・出典と、再構築できる比較索引を確認する。"""
 
-import base64
 import json
 import sqlite3
 from dataclasses import replace
 
-import numpy as np
 import pytest
-import spacy
-from spacy.tokens import Doc
+from rhoknp import Document
 
 from native_japanese.examples import (
+    SCHEMA_VERSION,
     Examples,
     analysis_from_record,
     extract_records,
     group_key,
+    parse_predicate,
+    parse_predicate_key,
     parse_query_key,
+    predicate_key,
     query_key,
     validate_record,
 )
-from native_japanese.models import PredicateGraph, PredicateNode, Query
-from native_japanese.parser import adapt_doc
+from native_japanese.models import (
+    NORMALIZATION_IDENTITY,
+    PARSER_VERSIONS,
+    Analysis,
+    PredicateGraph,
+    PredicateNode,
+    Query,
+)
 
-PREDICATE = PredicateGraph(0, (PredicateNode("比べる", "動詞-一般", (), None, None),))
-QUERY = Query(PREDICATE, 0, "obj", ("東",), "dependent")
+PREDICATE = PredicateGraph(
+    0, (PredicateNode("比べる/くらべる", "動詞-*", ("母音動詞", "基本形"), None, None),)
+)
+QUERY = Query(PREDICATE, 0, "N-P", ("東/*",), "noun")
 
 
 def make_analysis(query=QUERY):
-    # 形式変換の対照となる公開Doc。日本語解析のgoldは実モデルの試験で扱う。
-    nodes = query.predicate.nodes
-    size = len(nodes)
-    words = [n.lemma for n in nodes] + list(query.noun)
-    heads = [query.predicate.root if n.head is None else n.head for n in nodes]
-    deps = ["ROOT" if n.dependency is None else n.dependency for n in nodes]
-    heads += [query.attachment if i == 0 else size for i in range(len(query.noun))]
-    deps += [query.dependency if i == 0 else "compound" for i in range(len(query.noun))]
-    if query.noun_role == "head":
-        heads[query.predicate.root] = size
-        deps[query.predicate.root] = query.dependency
-        heads[size], deps[size] = size, "ROOT"
-    doc = Doc(
-        spacy.blank("ja").vocab,
-        words=words,
-        spaces=[False] * len(words),
-        heads=heads,
-        deps=deps,
-        lemmas=words,
-        pos=["VERB"] * size + ["NOUN"] * len(query.noun),
-        tags=[n.xpos for n in nodes] + ["名詞-普通名詞-一般"] * len(query.noun),
-        morphs=[{"Inflection": n.inflection} if n.inflection else {} for n in nodes]
-        + [{}] * len(query.noun),
+    # 公開KNP形式を入力とする交換契約の試験。日本語解析のgoldにはしない。
+    if query.predicate != PREDICATE or query.dependency != "N-P" or query.noun_role != "noun":
+        raise ValueError("このfixtureは比べるのヲ格だけを表します。")
+    canonical_nouns = query.noun
+    noun = tuple(key.rsplit("/", 1)[0] for key in canonical_nouns)
+    assert noun
+    knp = "\n".join(
+        [
+            "# S-ID:fixture kwja:2.6.0",
+            "* 1D",
+            "+ 1D <体言><係:ヲ格>",
+            *[
+                f'{word} {word} {word} 名詞 6 普通名詞 1 * 0 * 0 "代表表記:{canonical_nouns[index]}"'
+                + (" <基本句-主辞>" if index == 0 else "")
+                for index, word in enumerate(noun)
+            ],
+            "を を を 助詞 9 格助詞 1 * 0 * 0",
+            "* -1D",
+            f'+ -1D <用言:動><rel type="ヲ" target="{noun[0]}" sid="fixture" id="0"/>',
+            '比べる くらべる 比べる 動詞 2 * 0 母音動詞 1 基本形 2 "代表表記:比べる/くらべる" <基本句-主辞>',
+            "EOS",
+            "",
+        ]
     )
-    doc.user_data["bunsetu_bi_labels"] = ["B"] * len(doc)
-    return adapt_doc(doc, doc.text)
+    doc = Document.from_knp(knp)
+    offsets = []
+    cursor = 0
+    for morpheme in doc.morphemes:
+        offsets.append((cursor, cursor + len(morpheme.text)))
+        cursor += len(morpheme.text)
+    return Analysis(doc.text, doc.to_knp().encode("utf-8"), tuple(offsets))
 
 
 def record(query=QUERY, source="出典A", observation="出現1"):
@@ -80,17 +94,13 @@ def test_deduplication_keeps_all_sources_and_invalid_line_rolls_back(tmp_path):
         assert examples.import_jsonl(lines(record()))["observations_added"] == 0
         assert examples.lookup(QUERY)
         assert examples.connection.execute("SELECT count(*) FROM observations").fetchone()[0] == 2
-        extra = replace(QUERY, noun=("北",))
+        extra = replace(QUERY, noun=("北/*",))
         with pytest.raises(ValueError, match="3行目"):
             examples.import_jsonl(["\n", *lines(record(extra, source="戻す")), "{}"])
         assert not examples.lookup(extra)
         exported = list(examples.iter_records())
         assert {row["source_id"] for row in exported} == {"出典A", "出典B"}
-        resources = {}
-        assert all(
-            analysis_from_record(row, resources).snapshot == make_analysis().snapshot
-            for row in exported
-        )
+        assert all(analysis_from_record(row) == make_analysis() for row in exported)
     with Examples(path) as reopened:
         assert reopened.lookup(QUERY)
         with pytest.raises(ValueError, match="読み取り専用"):
@@ -98,7 +108,8 @@ def test_deduplication_keeps_all_sources_and_invalid_line_rolls_back(tmp_path):
 
 
 def test_graph_attachment_relation_and_array_boundaries_are_exact():
-    second = PredicateNode("補助", "助動詞", (), 0, "aux")
+    # 交換形式の異なる値が衝突しないことを確認し、native格の共有可否のgoldにはしない。
+    second = PredicateNode("せる", "助動詞-*", ("母音動詞", "基本形"), None, None)
     composed = replace(PREDICATE, nodes=(*PREDICATE.nodes, second))
     variants = [
         QUERY,
@@ -106,16 +117,18 @@ def test_graph_attachment_relation_and_array_boundaries_are_exact():
         replace(QUERY, predicate=composed, attachment=1),
         replace(
             QUERY,
-            predicate=replace(PREDICATE, nodes=(replace(PREDICATE.nodes[0], xpos="形容詞-一般"),)),
+            predicate=replace(PREDICATE, nodes=(replace(PREDICATE.nodes[0], xpos="形容詞-*"),)),
         ),
         replace(
             QUERY,
             predicate=replace(
-                PREDICATE, nodes=(replace(PREDICATE.nodes[0], inflection=("連体形",)),)
+                PREDICATE, nodes=(replace(PREDICATE.nodes[0], inflection=("母音動詞", "タ形")),)
             ),
         ),
-        replace(QUERY, dependency="nsubj"),
-        replace(QUERY, noun_role="head"),
+        replace(QUERY, dependency="PAS:ガ"),
+        replace(QUERY, noun_role="N"),
+        replace(QUERY, noun=("東/ひがし",)),
+        replace(QUERY, noun=("東/あずま",)),
         replace(QUERY, noun=("a/+ b",)),
         replace(QUERY, noun=("a/", "+ b")),
         replace(QUERY, noun=(), related_predicate=PREDICATE, related_attachment=0),
@@ -127,33 +140,43 @@ def test_graph_attachment_relation_and_array_boundaries_are_exact():
         assert parse_query_key(group_key(query), group=True) == replace(query, noun=())
 
 
-def test_archive_roundtrip_preserves_all_token_attributes_and_user_data(tmp_path):
+def test_archive_roundtrip_preserves_complete_native_analysis_and_offsets(tmp_path):
     analysis = make_analysis()
     doc = analysis.restore_doc()
-    doc.user_data["extra"] = {"全属性": [1, 2, 3]}
-    doc[0].set_morph("Reading=クラベル|Inflection=下一段;終止形-一般")
-    original = adapt_doc(doc, doc.text)
+    doc.base_phrases[1].features["追加情報"] = "文書の全属性"
+    doc.morphemes[-1].semantics["代表表記"] = "比べる/くらべる"
+    doc.morphemes[-1].reading = "クラベル"
+    original = replace(analysis, snapshot=doc.to_knp().encode("utf-8"))
     row = next(extract_records(original, "出典", "url"))
-    assert base64.b64decode(row["doc_base64"]) == original.snapshot
+    assert row["knp"].encode("utf-8") == original.snapshot
+    assert row["offsets"] == [list(span) for span in original.offsets]
     assert row == next(extract_records(original, "出典", "url"))
     with Examples(tmp_path / "正本.sqlite", writable=True) as examples:
         examples.import_jsonl(lines(row))
         restored = analysis_from_record(next(examples.iter_records()))
     assert restored == original
-    assert restored.restore_doc().to_bytes() == original.snapshot
+    assert restored.restore_doc().to_knp().encode("utf-8") == original.snapshot
     assert restored.comparison == original.comparison
+    restored.restore_doc().morphemes[-1].reading = "別の読み"
+    assert restored.snapshot == original.snapshot
 
 
 @pytest.mark.parametrize(
     "changed",
     [
-        {"schema_version": 2},
-        {"normalization_identity": "ginza-bunsetu-functional-projection-v10"},
-        {"doc_base64": "!"},
-        {"doc_base64": ""},
+        {"schema_version": 4},
+        {"schema_version": 5},
+        {"normalization_identity": "kwja-base-char-word-native-v1"},
+        {"parser_versions": {"kwja": "2.5.0", "rhoknp": "1.8.2"}},
+        {"normalization_identity": "ginza-predicate-role-occurrence-v12"},
+        {"knp": 123},
+        {"knp": ""},
         {"source_id": " "},
         {"parser_versions": {}},
         {"noun": ["旧投影"]},
+        {"offsets": [[False, 1]]},
+        {"offsets": [[0, 999]]},
+        {"offsets": [[0, 0]]},
     ],
 )
 def test_old_or_malformed_records_are_rejected(changed):
@@ -164,113 +187,179 @@ def test_old_or_malformed_records_are_rejected(changed):
 def test_mismatched_or_incomplete_document_rolls_back(tmp_path):
     row = record()
     with Examples(tmp_path / "正本.sqlite", writable=True) as examples:
-        with pytest.raises(ValueError, match="原文"):
-            examples.import_jsonl(lines({**row, "text": "異なる原文"}))
-        assert not list(examples.iter_records())
+        for changed in ({"text": "異なる原文"}, {"offsets": row["offsets"][:-1]}):
+            with pytest.raises(ValueError, match="原文|位置"):
+                examples.import_jsonl(lines({**row, **changed}))
+            assert not list(examples.iter_records())
 
 
-def test_shared_vocabulary_is_exported_once_and_document_lexemes_are_not_deduplicated(tmp_path):
+def test_native_analysis_differences_are_not_deduplicated(tmp_path):
     first = make_analysis()
     doc = first.restore_doc()
-    doc.vocab[doc[0].text].is_stop = not doc[0].is_stop
-    second = adapt_doc(doc, doc.text, vocabulary_resources=first.vocabulary.resources)
-    assert second.snapshot == first.snapshot
+    doc.morphemes[-1].reading = "別の読み"
+    second = replace(first, snapshot=doc.to_knp().encode("utf-8"))
     assert second.document_id != first.document_id
-    seen = set()
-    exported = [
-        next(extract_records(a, "出典", "url", resources_seen=seen)) for a in (first, second)
-    ]
-    assert exported[0]["vocabulary_resource_base64"]
-    assert exported[1]["vocabulary_resource_base64"] is None
     with Examples(tmp_path / "正本.sqlite", writable=True) as examples:
-        counts = examples.import_jsonl(lines(*exported))
+        counts = examples.import_jsonl(
+            lines(*(next(extract_records(a, "出典", "url")) for a in (first, second)))
+        )
         assert counts["documents_added"] == 2
-        assert examples.connection.execute("SELECT count(*) FROM vocabularies").fetchone()[0] == 1
-        cache = {}
-        restored = [analysis_from_record(row, cache) for row in examples.iter_records()]
+        restored = [analysis_from_record(row) for row in examples.iter_records()]
     assert {a.document_id for a in restored} == {first.document_id, second.document_id}
-    assert {a.restore_doc()[0].is_stop for a in restored} == {False, True}
+    assert {a.restore_doc().morphemes[-1].reading for a in restored} == {"くらべる", "別の読み"}
 
 
-@pytest.mark.parametrize("route", ["cache", "database_import", "database_export"])
-def test_wrong_shared_resource_is_rejected_without_changing_vector_values(tmp_path, route):
-    doc = make_analysis().restore_doc()
-    doc.vocab.set_vector("東", np.array([1, 2, 3], dtype="float32"))
-    original = adapt_doc(doc, doc.text)
-    row = next(extract_records(original, "出典", "url"))
-    doc.vocab.set_vector("東", np.array([9, 2, 3], dtype="float32"))
-    other = adapt_doc(doc, doc.text).vocabulary.resources
-    omitted = {**row, "vocabulary_resource_base64": None}
-    resource_id = row["vocabulary_resource_id"]
-    if route == "cache":
-        with pytest.raises(ValueError, match="IDと内容"):
-            analysis_from_record(omitted, {resource_id: other})
-        return
+def test_corrupted_stored_offsets_are_rejected_on_export(tmp_path):
     path = tmp_path / "正本.sqlite"
     with Examples(path, writable=True) as examples:
-        examples.import_jsonl(lines(row))
+        examples.import_jsonl(lines(record()))
     with sqlite3.connect(path) as db:
-        db.execute("UPDATE vocabularies SET snapshot=? WHERE id=?", (other.to_bytes(), resource_id))
-    with Examples(path, writable=route == "database_import") as examples:
-        with pytest.raises(ValueError, match="IDと内容"):
-            if route == "database_import":
-                examples.import_jsonl(lines(omitted))
-            else:
-                list(examples.iter_records())
+        db.execute("UPDATE documents SET offsets='[]'")
+    with Examples(path) as examples:
+        with pytest.raises(ValueError, match="原文|位置"):
+            list(examples.iter_records())
 
 
-def test_long_shared_generations_roundtrip_even_when_latest_document_is_exported_first(tmp_path):
-    from native_japanese.models import Analysis
-    from native_japanese.vocabulary import VocabularyRecorder, capture_vocabulary_resources
+def test_native_prefix_base_phrase_edges_roundtrip_through_archive_and_reference(
+    tmp_path, monkeypatch
+):
+    # 同文節の接頭辞基本句がPに係る公開辺を保持し、形態素間の辺へ変換しない。
+    from test_support import vector_model
 
-    vocab = spacy.blank("ja").vocab
-    resources = capture_vocabulary_resources(vocab)
-    recorder = VocabularyRecorder(resources)
-    for index in range(1100):
-        word = f"word{index}"
-        doc = Doc(
-            vocab,
-            words=[word],
-            heads=[0],
-            deps=["ROOT"],
-            pos=["NOUN"],
-            tags=["名詞-普通名詞-一般"],
-            lemmas=[word],
-        )
-        doc.user_data["bunsetu_bi_labels"] = ["B"]
-        snapshot = doc.to_bytes()
-        analysis = Analysis(doc.text, snapshot, recorder.capture(doc))
-        if index == 0:
-            first = analysis
-    last = analysis
-    seen_resources, seen_generations = set(), set()
-    records = [
-        next(
-            extract_records(
-                a, "出典", "url", resources_seen=seen_resources, generations_seen=seen_generations
-            )
-        )
-        for a in (last, first)
-    ]
-    assert len(seen_generations) == 1100
-    assert records[0]["vocabulary_generation_base64"]
-    assert records[1]["vocabulary_generation_base64"] is None
+    from native_japanese import reference
+    from native_japanese.parser import adapt_doc
+
+    document = Document.from_knp(
+        "# S-ID:prefix kwja:2.6.0\n"
+        "* 1D\n"
+        "+ 2D <体言>\n"
+        '東 ひがし 東 名詞 6 普通名詞 1 * 0 * 0 "代表表記:東/*" <基本句-主辞>\n'
+        "を を を 助詞 9 格助詞 1 * 0 * 0\n"
+        "* -1D\n"
+        "+ 2D\n"
+        '再 さい 再 接頭辞 13 名詞接頭辞 1 * 0 * 0 "代表表記:再/さい" <基本句-主辞>\n'
+        '+ -1D <用言:判><体言><rel type="ヲ" target="東" sid="prefix" id="0"/>\n'
+        '利用 りよう 利用 名詞 6 サ変名詞 2 * 0 * 0 "代表表記:利用/りよう" <基本句-主辞>\n'
+        "EOS\n"
+    )
+    analysis = adapt_doc(document, document.text)
+    predicate = PredicateGraph(
+        1,
+        (
+            PredicateNode("再/さい", "接頭辞-名詞接頭辞", ("*", "*"), 1, "基本句:D"),
+            PredicateNode("利用/りよう", "名詞-サ変名詞", ("*", "*"), None, None),
+        ),
+    )
+    assert analysis.predicates[0].query.predicate == predicate
+    assert analysis.predicates[0].graph.edges == ((3, 2, "基本句:D"),)
+    assert parse_predicate_key(predicate_key(predicate)) == predicate
+    query = Query(predicate, 1, "N-P", ("東/*",), "noun")
+    assert any(row.queries == (query,) for row in analysis.relations)
+    archive, output = tmp_path / "正本.sqlite", tmp_path / "配布.sqlite"
+    with Examples(archive, writable=True) as examples:
+        examples.import_jsonl(lines(*extract_records(analysis, "出典", "url")))
+        assert tuple(examples.iter_predicates()) == (predicate,)
+        assert tuple(examples.iter_usages()) == (query,)
+        assert analysis_from_record(next(examples.iter_records())) == analysis
+    monkeypatch.setattr(reference.resources, "load_fixed_vector", lambda _: vector_model().model)
+    reference.build_reference(archive, output, tmp_path)
+    with reference.Reference(output, tmp_path) as runtime:
+        assert runtime.assess(Query(predicate)).indexed
+        assert runtime.assess(query).indexed
+
+
+@pytest.mark.parametrize(
+    "nodes",
+    [
+        [["核", "名詞", [], None, None], ["接頭辞", "接頭辞", [], 1, "基本句:D"]],
+        [["核", "名詞", [], None, None], ["接頭辞", "接頭辞", [], 9, "基本句:D"]],
+        [["核", "名詞", [], None, None], ["接頭辞", "接頭辞", [], 0, "aux"]],
+        [
+            ["核", "名詞", [], None, None],
+            ["前", "接頭辞", [], 2, "基本句:D"],
+            ["後", "接頭辞", [], 1, "基本句:D"],
+        ],
+    ],
+)
+def test_malformed_or_cyclic_native_base_phrase_edges_are_rejected(nodes):
+    with pytest.raises(ValueError):
+        parse_predicate([0, nodes])
+
+
+def test_archive_contract_is_committed_for_empty_database_and_preserved_on_roundtrip(tmp_path):
     path = tmp_path / "正本.sqlite"
+    with Examples(path, writable=True):
+        pass
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 6
+        stored = dict(db.execute("SELECT key,value FROM metadata"))
+        assert stored["normalization_identity"] == NORMALIZATION_IDENTITY
+        assert json.loads(stored["parser_versions"]) == PARSER_VERSIONS
     with Examples(path, writable=True) as examples:
-        examples.import_jsonl(lines(*records))
-        assert (
-            examples.connection.execute("SELECT count(*) FROM vocabulary_generations").fetchone()[0]
-            == 1100
-        )
+        assert not list(examples.iter_records())
+        examples.import_jsonl(lines(record()))
     with Examples(path) as examples:
         exported = list(examples.iter_records())
+    assert exported[0]["schema_version"] == 6
+    assert exported[0]["normalization_identity"] == stored["normalization_identity"]
+    assert exported[0]["parser_versions"] == json.loads(stored["parser_versions"])
     with Examples(tmp_path / "再取込.sqlite", writable=True) as examples:
         examples.import_jsonl(lines(*exported))
-        resource_cache, generation_cache = {}, {}
-        restored = [
-            analysis_from_record(row, resource_cache, generation_cache)
-            for row in examples.iter_records()
-        ]
-    assert {a.document_id for a in restored} == {first.document_id, last.document_id}
-    latest = next(a for a in restored if a.document_id == last.document_id).restore_doc()
-    assert "word0" in latest.vocab.strings and "word1099" in latest.vocab.strings
+        assert list(examples.iter_records()) == exported
+
+
+@pytest.mark.parametrize("writable", [False, True])
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "old_schema",
+        "missing_table",
+        "missing_identity",
+        "old_identity",
+        "wrong_versions",
+        "malformed_versions",
+        "extra_metadata",
+    ],
+)
+def test_unknown_or_modified_archive_contract_is_rejected_without_relabeling_or_writing(
+    tmp_path, writable, damage
+):
+    # schemaだけでは解析方針の同一性を保証できない。保存済み契約を持たない正本も拒否する。
+    path = tmp_path / "正本.sqlite"
+    with Examples(path, writable=True) as examples:
+        examples.import_jsonl(lines(record()))
+    with sqlite3.connect(path) as db:
+        if damage == "old_schema":
+            db.execute("PRAGMA user_version=5")
+        elif damage == "missing_table":
+            db.execute("DROP TABLE metadata")
+        elif damage == "missing_identity":
+            db.execute("DELETE FROM metadata WHERE key='normalization_identity'")
+        elif damage == "old_identity":
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='normalization_identity'",
+                ("kwja-base-char-word-native-v1",),
+            )
+        elif damage == "wrong_versions":
+            db.execute(
+                "UPDATE metadata SET value=? WHERE key='parser_versions'",
+                (json.dumps({**PARSER_VERSIONS, "kwja": "2.5.0"}),),
+            )
+        elif damage == "malformed_versions":
+            db.execute("UPDATE metadata SET value='{' WHERE key='parser_versions'")
+        else:
+            db.execute("INSERT INTO metadata VALUES ('unknown','value')")
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="解析契約|種類または版"):
+        with Examples(path, writable=writable) as examples:
+            pytest.fail("不明な契約の正本を開きました。")
+    assert path.read_bytes() == before
+
+
+def test_exported_record_cannot_mutate_the_fixed_parser_contract():
+    row = record()
+    expected = dict(PARSER_VERSIONS)
+    row["parser_versions"]["kwja"] = "2.5.0"
+    assert PARSER_VERSIONS == expected
+    with pytest.raises(ValueError, match="解析契約"):
+        validate_record(row)
