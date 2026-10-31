@@ -140,12 +140,17 @@ test("設定済みHook commandはルートと子ディレクトリから同じ�
     assert.equal(command.type, "command");
     assert.equal(command.async, undefined);
     const windows = process.platform === "win32";
-    const executable = windows ? "cmd.exe" : "/bin/sh";
-    const args = windows ? ["/C", command.commandWindows] : ["-lc", command.command];
+    const executable = windows ? (process.env.ComSpec || "cmd.exe") : "/bin/sh";
+    // Codex 0.163.0はcmd /Cに、外側を引用したcommandをraw_argで渡す。
+    // Node既定のWindows引数escapeを止め、同じコマンドラインを検査する。
+    // https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/hooks/src/engine/command_runner.rs
+    // https://nodejs.org/docs/latest-v24.x/api/child_process.html#child_processspawnsynccommand-args-options
+    const args = windows ? ["/C", `"${command.commandWindows}"`] : ["-lc", command.command];
     if (!windows) t.diagnostic("Windows cmdでの実行はWindows環境でのみ検証する。");
     for (const cwd of [root, fileURLToPath(new URL("../docs/guide/", import.meta.url))]) {
         const result = spawnSync(executable, args, {
-            cwd, input: JSON.stringify(payload("照明の耐久性は未検証です。")), encoding: "utf8", timeout: 5000
+            cwd, input: JSON.stringify(payload("照明の耐久性は未検証です。")), encoding: "utf8", timeout: 5000,
+            windowsVerbatimArguments: windows
         });
         assert.equal(result.error, undefined);
         assert.equal(result.status, 0, result.stderr);
