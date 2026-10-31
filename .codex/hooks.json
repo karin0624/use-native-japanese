@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/tools/check-turn-completion.mjs\"",
+            "commandWindows": "for /f \"delims=\" %I in ('git rev-parse --show-toplevel') do @node \"%I/tools/check-turn-completion.mjs\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
